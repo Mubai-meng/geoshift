@@ -655,6 +655,11 @@ class Geoshift private constructor(context: Context) {
         store.setSdkKey(key.trim())
     }
 
+    /** Optional custom-map-style id (from the AMap console); empty restores the default map. */
+    fun setSdkStyleId(id: String) {
+        store.setSdkStyleId(id)
+    }
+
     /**
      * Advisory (manual only): the public exit IP's location against the simulated point. The module
      * cannot forge the IP; a large gap means apps that cross-check IP geolocation can still tell.

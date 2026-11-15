@@ -108,6 +108,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.geoshift.core.Geo
@@ -157,6 +158,7 @@ fun MapScreen(
     var addressGeneration by remember { mutableIntStateOf(0) }
     val camera = remember { MapCamera(r.position) }
     var mapBearing by remember { mutableDoubleStateOf(0.0) }
+    val deviceHeading by rememberDeviceHeading()
     var bottomCardHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     // Everything but the plain OpenStreetMap layer is drawn by MapLibre (sharper, rotatable).
@@ -164,6 +166,7 @@ fun MapScreen(
     // With the user's AMap Android key the AMap layer is the official SDK map; tiles otherwise.
     val sdk = vm.engine.amapSdk
     val sdkKey by vm.engine.store.sdkKey.collectAsState()
+    val sdkStyleId by vm.engine.store.sdkStyleId.collectAsState()
     val realPosition by vm.engine.realPosition.collectAsState()
     // The real position can only be read while not simulating; it is kept (and shown) meanwhile.
     LaunchedEffect(r.enabled) {
@@ -273,7 +276,7 @@ fun MapScreen(
             virtual = r.position, simulating = r.enabled, real = realPosition,
             selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
-            dark = isDark(s.settings.theme), camera = camera, center = centerRequest,
+            dark = isDark(s.settings.theme), styleId = sdkStyleId, camera = camera, center = centerRequest,
             logoBottomMargin = bottomCardHeight,
             onBearingChanged = { mapBearing = it },
             onTap = { p -> if (editing) draft.add(p) else select(p) },
@@ -406,6 +409,7 @@ fun MapScreen(
         ) {
             MapCompass(
                 bearing = mapBearing,
+                deviceHeading = deviceHeading,
                 onClick = {
                     if (abs(signedBearing(mapBearing)) > 1.0) {
                         onCenter(CenterRequest(camera.target, camera.zoom, bearing = 0.0))
@@ -641,11 +645,16 @@ private fun MapTool(
 /**
  * Compass dial widget: 3D beveled red/slate needle pointing to True North.
  * Rotates smoothly in real time with map bearing; tap to reset bearing to True North.
+ *
+ * When [deviceHeading] is available (degrees clockwise from magnetic north, from the phone's
+ * rotation-vector sensor) a translucent blue beam shows where the phone itself is pointing within
+ * the geographic dial — exactly as a navigation app's "my location" cone does.
  */
 @Composable
 private fun MapCompass(
     bearing: Double,
     modifier: Modifier = Modifier,
+    deviceHeading: Float? = null,
     onClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -660,6 +669,19 @@ private fun MapCompass(
         label = "compass",
     )
     val isFacingNorth = abs(signed) < 1.0
+    // The phone's heading placed on the same geographic dial as the needle: a geographic bearing θ
+    // sits at (θ - mapBearing) on screen, so north (the red needle) and this beam stay consistent.
+    val deviceOnDial = deviceHeading?.let { (it - bearing).toFloat() }
+    val deviceNeedle = remember { floatArrayOf(0f) }
+    if (deviceOnDial != null) {
+        val d = ((deviceOnDial - deviceNeedle[0]) % 360f + 540f) % 360f - 180f
+        deviceNeedle[0] += d
+    }
+    val animatedDevice by animateFloatAsState(
+        targetValue = deviceNeedle[0],
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "deviceHeading",
+    )
 
     Surface(
         onClick = {
@@ -671,6 +693,28 @@ private fun MapCompass(
         modifier = modifier.size(48.dp).glass(CircleShape),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            // Phone-heading beam, under the needle: shows where the device is actually pointing.
+            if (deviceOnDial != null) {
+                Canvas(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .rotate(animatedDevice)
+                ) {
+                    val cx = size.width / 2f
+                    val cy = size.height / 2f
+                    val len = size.height * 0.46f
+                    val halfW = size.width * 0.15f
+                    val beam = Path().apply {
+                        moveTo(cx, cy - len)
+                        lineTo(cx - halfW, cy)
+                        lineTo(cx + halfW, cy)
+                        close()
+                    }
+                    drawPath(beam, color = Color(0x4D1A7CFF))
+                    drawPath(beam, color = Color(0xAA1A7CFF), style = Stroke(width = size.width * 0.02f))
+                    drawCircle(color = Color(0xFF1A7CFF), radius = halfW * 0.55f, center = Offset(cx, cy - len))
+                }
+            }
             Canvas(
                 modifier = Modifier
                     .size(28.dp)

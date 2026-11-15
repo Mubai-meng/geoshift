@@ -1,9 +1,11 @@
 package app.geoshift.ui.map
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import android.view.animation.LinearInterpolator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -19,11 +21,13 @@ import app.geoshift.core.LatLon
 import app.geoshift.data.net.AmapSdk
 import app.geoshift.map.MapSource
 import com.amap.api.maps.AMap
+import com.amap.api.maps.AMapUtils
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.TextureMapView
 import com.amap.api.maps.model.BitmapDescriptorFactory
 import com.amap.api.maps.model.CameraPosition
+import com.amap.api.maps.model.CustomMapStyleOptions
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
@@ -52,6 +56,7 @@ fun AmapMap(
     routeEditing: Boolean,
     anchors: List<LatLon>,
     dark: Boolean,
+    styleId: String,
     camera: MapCamera,
     center: CenterRequest?,
     logoBottomMargin: Int,
@@ -126,10 +131,10 @@ fun AmapMap(
         layers.animateTo(request.target, zoom, request.bearing)
     }
     LaunchedEffect(route, routeEditing, anchors, layers) { layers.route(route, routeEditing, anchors) }
+    DisposableEffect(layers) { onDispose { layers.release() } }
     AndroidView(factory = { view }, modifier = modifier) {
         layers.map.uiSettings.setLogoBottomMargin(logoBottomMargin)
-        val type = if (dark) AMap.MAP_TYPE_NIGHT else AMap.MAP_TYPE_NORMAL
-        if (layers.map.mapType != type) layers.map.mapType = type
+        layers.applyStyle(styleId, dark)
         layers.markers(virtual, simulating, real, selected)
     }
 }
@@ -168,6 +173,10 @@ private class NativeLayers(
     private var lastSimulating: Boolean? = null
     private var lastSelected: LatLon? = null
     private var lastReal: LatLon? = null
+    private var lastStyleId: String? = null
+    private var lastDark: Boolean? = null
+    private var styleApplied = false
+    private var virtualAnimator: ValueAnimator? = null
 
     init {
         map.isMyLocationEnabled = false
@@ -234,13 +243,71 @@ private class NativeLayers(
             real?.let { this.real.position = it.amap() }
             lastReal = real
         }
-        if (virtual != lastVirtual) { this.virtual.position = virtual.amap(); lastVirtual = virtual }
-        if (simulating != lastSimulating) { this.virtual.setIcon(if (simulating) activeIcon else idleIcon); lastSimulating = simulating }
+        if (virtual != lastVirtual) {
+            val from = lastVirtual
+            // While simulating, glide the marker between consecutive fixes instead of teleporting;
+            // a large jump (a manual move, a joystick snap) is applied at once.
+            if (simulating && from != null &&
+                AMapUtils.calculateLineDistance(from.amap(), virtual.amap()) in 0.2f..300f) {
+                animateVirtual(from, virtual)
+            } else {
+                virtualAnimator?.cancel()
+                this.virtual.position = virtual.amap()
+            }
+            lastVirtual = virtual
+        }
+        if (simulating != lastSimulating) {
+            this.virtual.setIcon(if (simulating) activeIcon else idleIcon)
+            if (!simulating) virtualAnimator?.cancel()
+            lastSimulating = simulating
+        }
         if (selected != lastSelected) {
             this.selected.isVisible = selected != null
             selected?.let { this.selected.position = it.amap() }
             lastSelected = selected
         }
+    }
+
+    private fun animateVirtual(from: LatLon, to: LatLon) {
+        virtualAnimator?.cancel()
+        val a = from.amap()
+        val b = to.amap()
+        virtualAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 950L
+            interpolator = LinearInterpolator()
+            addUpdateListener { anim ->
+                val t = anim.animatedValue as Float
+                virtual.position = com.amap.api.maps.model.LatLng(
+                    a.latitude + (b.latitude - a.latitude) * t,
+                    a.longitude + (b.longitude - a.longitude) * t,
+                )
+            }
+            start()
+        }
+    }
+
+    /** A custom style id (made in the AMap console) overrides day/night; empty restores the preset. */
+    fun applyStyle(styleId: String, dark: Boolean) {
+        if (styleId == lastStyleId && dark == lastDark) return
+        lastStyleId = styleId
+        lastDark = dark
+        if (styleId.isNotEmpty()) {
+            if (map.mapType != AMap.MAP_TYPE_NORMAL) map.mapType = AMap.MAP_TYPE_NORMAL
+            map.setCustomMapStyle(CustomMapStyleOptions().setEnable(true).setStyleId(styleId))
+            styleApplied = true
+        } else {
+            if (styleApplied) {
+                map.setCustomMapStyle(CustomMapStyleOptions().setEnable(false))
+                styleApplied = false
+            }
+            val type = if (dark) AMap.MAP_TYPE_NIGHT else AMap.MAP_TYPE_NORMAL
+            if (map.mapType != type) map.mapType = type
+        }
+    }
+
+    fun release() {
+        virtualAnimator?.cancel()
+        virtualAnimator = null
     }
 
     fun route(points: List<LatLon>, editing: Boolean, anchors: List<LatLon>) {

@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +98,7 @@ fun AmapKeyScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
     var faq by rememberSaveable { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
     val configured = s.sdkKeyConfigured
+    val currentStyleId by vm.engine.store.sdkStyleId.collectAsState()
 
     fun open(url: String) = runCatching { uri.openUri(url) }.onFailure { vm.toast("无法打开浏览器，请稍后重试") }
     fun copy(label: String, text: String) {
@@ -209,6 +211,39 @@ fun AmapKeyScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
             Body("保存后点「验证 Key」。通过后回到地图，图层选「高德地图」即可看到官方地图（保存时已自动切换）。")
             Spacer(Modifier.size(10.dp))
             FilledTonalButton(enabled = configured, onClick = ::verify, modifier = Modifier.fillMaxWidth()) { Text("验证 Key") }
+        }
+
+        Step(6, "自定义样式", "可选：套用你在控制台做好的个性化地图")
+        PortalCard(Modifier.padding(horizontal = 16.dp)) {
+            Body("在高德控制台「地图 · 个性化地图」里设计好样式后会得到一个样式 ID。填入并保存，官方地图即套用它；留空则用默认日/夜地图。")
+            Spacer(Modifier.size(10.dp))
+            var styleValue by remember { mutableStateOf(currentStyleId) }
+            OutlinedTextField(
+                styleValue, onValueChange = { styleValue = it.trim() }, singleLine = true,
+                label = { Text("地图样式 ID（styleId）") }, placeholder = { Text("控制台个性化地图的样式 ID") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (currentStyleId.isNotEmpty()) {
+                Spacer(Modifier.size(6.dp))
+                Text("当前已套用：$currentStyleId", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.size(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    enabled = styleValue.trim() != currentStyleId,
+                    onClick = {
+                        val id = styleValue.trim()
+                        vm.run<Unit>(if (id.isEmpty()) "已清除自定义地图样式" else "自定义地图样式已保存") { setSdkStyleId(id) }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("保存样式") }
+                OutlinedButton(
+                    enabled = currentStyleId.isNotEmpty(),
+                    onClick = { styleValue = ""; vm.run<Unit>("已清除自定义地图样式") { setSdkStyleId("") } },
+                    modifier = Modifier.weight(1f),
+                ) { Text("清除") }
+            }
         }
 
         // ---- FAQ ----
