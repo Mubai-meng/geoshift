@@ -178,7 +178,9 @@ fun MapScreen(
     // Open on the phone's real position rather than the last simulated one: once per launch, only when
     // not simulating, and never after the user has moved the map or picked a point meanwhile.
     LaunchedEffect(Unit) {
-        if (vm.launchCentered || !s.caps.preciseLocation) return@LaunchedEffect
+        if (vm.launchCentered) return@LaunchedEffect
+        // Asked afresh: the state's capabilities are still the defaults right after launch.
+        if (!withContext(Dispatchers.IO) { runCatching { vm.engine.capabilities().preciseLocation }.getOrDefault(false) }) return@LaunchedEffect
         vm.launchCentered = true
         if (r.enabled) return@LaunchedEffect
         var shown = camera.target
