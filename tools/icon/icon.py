@@ -11,10 +11,10 @@ import sys
 from PIL import Image, ImageDraw
 
 V = 108.0
-BG_TOP, BG_BOTTOM = "#667EEA", "#764BA2"
-WHITE, FRAME, SHIRT, SKIN, SKIN_FAR, SHORTS = "#FFFFFF", "#FFD166", "#00D2A0", "#FFE0B2", "#F5CBA7", "#3949AB"
-HAIR = "#3E2723"
-HAIR_TIE = "#FF6584"
+BG_TOP, BG_BOTTOM = "#FFCF8F", "#F27F62"
+WHITE, CREAM, SLEEVE, SKIN, SKIN_FAR = "#FFFFFF", "#FFF7EA", "#FFE6C7", "#FFE3C8", "#F6C9A6"
+HAIR, BROWN, WICKER = "#4E2F2B", "#6B3F37", "#B5733F"
+SKIRT, BERET, LEAF, BLUSH = "#2F7F7B", "#C9435A", "#5FA36F", "#FF9E8F"
 
 
 def circle(cx, cy, r):
@@ -29,55 +29,72 @@ def fill(d, color, alpha=1.0):
     return dict(d=d, fill=color, alpha=alpha)
 
 
-# Ground the bike stands on; part of the background layer.
+# Evening sun and the ground the bike stands on; part of the background layer.
 GROUND = [
-    fill("M0,82.6 Q54,76.2 108,82.6 L108,108 L0,108 Z", WHITE, 0.14),
-    fill("M0,92 Q54,86 108,92 L108,108 L0,108 Z", WHITE, 0.12),
+    fill(circle(70, 38, 25), WHITE, 0.16),
+    fill(circle(70, 38, 18), WHITE, 0.18),
+    fill("M0,82.6 Q54,76.2 108,82.6 L108,108 L0,108 Z", WHITE, 0.16),
+    fill("M0,92 Q54,86 108,92 L108,108 L0,108 Z", WHITE, 0.14),
 ]
 
-# The cyclist (girl with twin ponytails), drawn back to front. Designed in the full viewport, then scaled into the safe zone.
+# A girl out for an easy evening ride: long hair, beret and glasses, knit top and long skirt, on a
+# step-through city bike with flowers in the basket. Drawn back to front in the full viewport, then
+# scaled into the safe zone.
 RIDER = [
-    # speed lines
-    stroke("M17.5,47 L27.5,47", WHITE, 2.6, 0.6),
-    stroke("M13.5,56 L25,56", WHITE, 2.6, 0.4),
-    # far twin ponytail (flying back and up in the wind)
-    fill("M59,24.5 C53,20.5 45,19 38,22 C43,24 49,25.5 58,26.5 Z", HAIR),
-    stroke("M58.5,24 L59.5,26", HAIR_TIE, 2.2),
-    # far leg and shoe
-    stroke("M48.5,46.5 L52.5,58 L47.5,69.5", SKIN_FAR, 4.4),
-    stroke("M45,71 L50,71", WHITE, 3.2),
+    # petals drifting behind
+    fill(circle(24.5, 41, 1.5), WHITE, 0.75),
+    fill(circle(19.5, 50, 1.2), WHITE, 0.55),
+    fill(circle(27.5, 53.5, 1.0), WHITE, 0.6),
+    # far shin and shoe (pedal up and back)
+    stroke("M51.5,57 L49.6,63", SKIN_FAR, 3.6),
+    stroke("M47.4,64.6 L52,64.6", BROWN, 3.0),
     # wheels
-    stroke(circle(36, 68, 11.5), WHITE, 3.6),
-    stroke(circle(72, 68, 11.5), WHITE, 3.6),
-    fill(circle(36, 68, 1.9), WHITE),
-    fill(circle(72, 68, 1.9), WHITE),
-    # frame: rear triangle, top tube, down tube, fork
-    stroke("M36,68 L51,68.5 L46.6,52.5 Z", FRAME, 3.1),
-    stroke("M46.9,53.6 L65.6,51 M51,68.5 L66,52.6", FRAME, 3.1),
-    stroke("M64.9,47.8 L66,52.6 L72,68", FRAME, 3.1),
-    # saddle and handlebar
-    stroke("M42.6,48.9 L50.4,48.9", WHITE, 3.6),
-    stroke("M64.9,47.8 L64.5,45 L69.5,43.8", WHITE, 3.2),
-    # near leg: thigh and shin, shorts over the thigh, shoe on the pedal
-    stroke("M49,46.5 L59,54 L55.5,65.5", SKIN, 4.8),
-    stroke("M48.6,46.2 L55,51", SHORTS, 7.0),
-    stroke("M53.2,67 L58.6,67", WHITE, 3.4),
-    # near twin ponytail (flying back and lower in the wind)
-    fill("M59.5,27.5 C53,26 46,26.5 40,30 C45,31.5 52,31 58.5,29.5 Z", HAIR),
-    stroke("M58.8,27.8 L59.6,29.8", HAIR_TIE, 2.2),
-    # arm (under the torso, so it leaves the shoulder cleanly), torso (mint jersey), sleeve, neck, head, helmet
-    stroke("M59.4,36 Q62,42.8 68.8,44", SKIN, 4.0),
-    stroke("M48.8,45 L59.4,35.2", SHIRT, 8.8),
-    stroke("M59.6,36 L61,39.4", SHIRT, 5.0),
-    stroke("M61.4,32.2 L63.6,29.4", SKIN, 4.0),
-    fill(circle(66, 26.4, 6.5), SKIN),
-    stroke("M62.5,26.8 Q61.5,29.5 63.2,31", HAIR, 1.8),
-    fill("M58.9,26.8 C58.4,21.3 62.2,18.3 66.4,18.4 C70.8,18.5 73.8,21.5 74.3,25.3 Z", WHITE),
-    stroke("M61.2,22.4 Q65.6,19.6 71.4,21.6", SHIRT, 1.6),
+    stroke(circle(33, 68, 11.5), WHITE, 3.2),
+    stroke(circle(75, 68, 11.5), WHITE, 3.2),
+    fill(circle(33, 68, 1.8), WHITE),
+    fill(circle(75, 68, 1.8), WHITE),
+    # frame: chain stay, seat stay, seat tube, swooping step-through tube, head tube and fork
+    stroke("M33,68 L52,68 L46.2,50 M33,68 L47.4,53.8", CREAM, 2.9),
+    stroke("M52,68 Q61.5,65.5 65.8,47.5", CREAM, 2.9),
+    stroke("M65.2,43.4 L66.2,48 L75,68", CREAM, 2.9),
+    # saddle, handlebar swept back to the hand
+    stroke("M42.4,48.8 L50,48.8", BROWN, 3.6),
+    stroke("M65.2,43.4 Q64,40.6 60.6,41.2", WHITE, 2.8),
+    # basket with flowers, in front of the handlebar
+    stroke("M71.2,38.5 L70.4,33.8 M74.6,38.5 L75.2,32.6 M77.6,38.5 L79.2,34.6", LEAF, 1.5),
+    fill(circle(70.3, 33, 2.5), WHITE),
+    fill(circle(75.3, 31.4, 2.8), BERET),
+    fill(circle(79.6, 33.8, 2.3), WHITE),
+    fill(circle(75.3, 31.4, 1.0), "#FFD98A"),
+    fill("M67.4,38.2 L81.6,38.2 Q82.6,38.2 82.4,39.2 L80.4,47 Q80.1,48 79,48 L70,48 Q68.9,48 68.6,47 L66.6,39.2 Q66.4,38.2 67.4,38.2 Z", WICKER),
+    stroke("M67.6,41.4 L81.4,41.4 M68.4,44.6 L80.6,44.6", "#D9995F", 0.9),
+    # long hair down the back, lifted a little by the breeze
+    fill("M50.5,16.5 C44.5,17.5 41.5,23.5 42.2,30 C42.6,35 40.4,39.4 35.6,42.6 C42,43.6 47.4,40.6 49.6,35.4 C51,31.4 51.4,26 52.4,22 Z", HAIR),
+    # near shin and shoe (pedal down and forward)
+    stroke("M57.6,63.5 L56.2,71.4", SKIN, 4.0),
+    stroke("M53.8,73.2 L59.4,73.2", BROWN, 3.2),
+    # long skirt, fluttering behind the saddle
+    fill("M44.2,43.4 L52.4,44.8 C56.6,47.6 60.2,51.8 60.8,56 L60,65 Q54.4,67.8 49.2,66.2 C47.2,62.4 44,60.4 39.6,61.6 C42,55.6 43,49.4 44.2,43.4 Z", SKIRT),
+    # knit top, arm reaching to the bar, hand
+    stroke("M47.8,44.2 L51.4,31.4", CREAM, 8.6),
+    stroke("M51.8,31.8 L56.8,38.6 L60.4,40.6", SLEEVE, 4.2),
+    fill(circle(61.2, 41.1, 1.9), SKIN),
+    # neck, head
+    stroke("M52.4,28.6 L53.3,26", SKIN, 3.4),
+    fill(circle(54.6, 21.4, 6.3), SKIN),
+    # hair over the crown and beside the face, blush, smile, glasses
+    fill("M48.3,22.5 C47.5,16.4 51.6,13.6 55.6,14 C58.4,14.2 60.2,15.8 60.8,17.6 C57.6,16.9 54.2,17.6 52.6,20.2 C52,23 51.6,25.6 50.4,27.4 C49,26.4 48.4,24.6 48.3,22.5 Z", HAIR),
+    fill(circle(57.2, 24.5, 1.3), BLUSH, 0.85),
+    stroke("M58.7,25.5 Q59.6,26.3 60.4,25.5", BROWN, 0.7),
+    stroke(circle(58.4, 21.5, 1.9), BROWN, 0.8),
+    stroke("M56.5,21.3 L53,20.9", BROWN, 0.7),
+    # beret, tilted back
+    fill("M47,17.4 C46.6,12.4 51.8,9.8 56.6,10.5 C60.8,11.1 62.8,13.9 61.8,16.2 C57,14.7 51.6,15.5 47,17.4 Z", BERET),
+    stroke("M54.6,10.4 L55,8.9", BERET, 1.3),
 ]
 
 # Foreground fits the adaptive-icon safe zone (66 dp circle) after this transform about the centre.
-FG_SCALE, FG_DY = 0.88, 1.5
+FG_SCALE, FG_DY = 0.8, 4.0
 
 
 # ---- path flattening -------------------------------------------------------------------------
@@ -243,7 +260,7 @@ def previews(out):
     sheet.save(os.path.join(out, "preview.png"))
 
 
-LOGO_SCALE, LOGO_DY = 1.12, 0.5
+LOGO_SCALE, LOGO_DY = 1.05, 0.5
 
 
 # ---- Android vector drawables ----------------------------------------------------------------
@@ -306,7 +323,7 @@ def drawables(res):
           HEAD.format(aapt="", size=24) + group([s for s in RIDER if s.get("alpha", 1) == 1], STAT_SCALE, STAT_DY, mono="#FFFFFF") + "</vector>\n")
 
 
-STAT_SCALE, STAT_DY = 1.55, 6.5
+STAT_SCALE, STAT_DY = 1.42, 12.0
 
 if __name__ == "__main__":
     res, out = sys.argv[1], sys.argv[2]
