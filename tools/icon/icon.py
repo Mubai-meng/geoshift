@@ -11,10 +11,10 @@ import sys
 from PIL import Image, ImageDraw
 
 V = 108.0
-BG_TOP, BG_BOTTOM = "#FFCF8F", "#F27F62"
-WHITE, CREAM, SLEEVE, SKIN, SKIN_FAR = "#FFFFFF", "#FFF7EA", "#FFE6C7", "#FFE3C8", "#F6C9A6"
-HAIR, BROWN, WICKER = "#4E2F2B", "#6B3F37", "#B5733F"
-SKIRT, BERET, LEAF, BLUSH = "#2F7F7B", "#C9435A", "#5FA36F", "#FF9E8F"
+BG_TOP, BG_BOTTOM = "#FFE0B5", "#F58F78"
+WHITE, CREAM, SLEEVE, SKIN, SKIN_SHADE = "#FFFFFF", "#FFFDF8", "#F3E2D2", "#FFE4D0", "#F6CDB3"
+HAIR, HAIR_LIGHT, BROWN, WICKER = "#2E1F23", "#6E4B4B", "#5A3A36", "#B5733F"
+SKIRT, LIPS, LEAF, BLUSH, SUN = "#9A3350", "#C8374F", "#5FA36F", "#FF9E8F", "#FFC978"
 
 
 def circle(cx, cy, r):
@@ -29,72 +29,55 @@ def fill(d, color, alpha=1.0):
     return dict(d=d, fill=color, alpha=alpha)
 
 
-# Evening sun and the ground the bike stands on; part of the background layer.
+# Low evening sun behind her head, and the road; part of the background layer.
 GROUND = [
-    fill(circle(70, 38, 25), WHITE, 0.16),
-    fill(circle(70, 38, 18), WHITE, 0.18),
-    fill("M0,82.6 Q54,76.2 108,82.6 L108,108 L0,108 Z", WHITE, 0.16),
-    fill("M0,92 Q54,86 108,92 L108,108 L0,108 Z", WHITE, 0.14),
+    fill(circle(52, 47, 27), SUN, 0.62),
+    fill("M0,93 Q54,88 108,93 L108,108 L0,108 Z", WHITE, 0.16),
 ]
 
-# A girl out for an easy evening ride: long hair, beret and glasses, knit top and long skirt, on a
-# step-through city bike with flowers in the basket. Drawn back to front in the full viewport, then
-# scaled into the safe zone.
+# A woman on an evening ride, seen close and in profile: full shoulder-length hair with a fringe,
+# lowered eyes, cream blouse and a long wine skirt, flowers in the bike's basket. Drawn back to
+# front in the full viewport (the body runs off the bottom edge), then scaled into the safe zone.
 RIDER = [
-    # petals drifting behind
-    fill(circle(24.5, 41, 1.5), WHITE, 0.75),
-    fill(circle(19.5, 50, 1.2), WHITE, 0.55),
-    fill(circle(27.5, 53.5, 1.0), WHITE, 0.6),
-    # far shin and shoe (pedal up and back)
-    stroke("M51.5,57 L49.6,63", SKIN_FAR, 3.6),
-    stroke("M47.4,64.6 L52,64.6", BROWN, 3.0),
-    # wheels
-    stroke(circle(33, 68, 11.5), WHITE, 3.2),
-    stroke(circle(75, 68, 11.5), WHITE, 3.2),
-    fill(circle(33, 68, 1.8), WHITE),
-    fill(circle(75, 68, 1.8), WHITE),
-    # frame: chain stay, seat stay, seat tube, swooping step-through tube, head tube and fork
-    stroke("M33,68 L52,68 L46.2,50 M33,68 L47.4,53.8", CREAM, 2.9),
-    stroke("M52,68 Q61.5,65.5 65.8,47.5", CREAM, 2.9),
-    stroke("M65.2,43.4 L66.2,48 L75,68", CREAM, 2.9),
-    # saddle, handlebar swept back to the hand
-    stroke("M42.4,48.8 L50,48.8", BROWN, 3.6),
-    stroke("M65.2,43.4 Q64,40.6 60.6,41.2", WHITE, 2.8),
-    # basket with flowers, in front of the handlebar
-    stroke("M71.2,38.5 L70.4,33.8 M74.6,38.5 L75.2,32.6 M77.6,38.5 L79.2,34.6", LEAF, 1.5),
-    fill(circle(70.3, 33, 2.5), WHITE),
-    fill(circle(75.3, 31.4, 2.8), BERET),
-    fill(circle(79.6, 33.8, 2.3), WHITE),
-    fill(circle(75.3, 31.4, 1.0), "#FFD98A"),
-    fill("M67.4,38.2 L81.6,38.2 Q82.6,38.2 82.4,39.2 L80.4,47 Q80.1,48 79,48 L70,48 Q68.9,48 68.6,47 L66.6,39.2 Q66.4,38.2 67.4,38.2 Z", WICKER),
-    stroke("M67.6,41.4 L81.4,41.4 M68.4,44.6 L80.6,44.6", "#D9995F", 0.9),
-    # long hair down the back, lifted a little by the breeze
-    fill("M50.5,16.5 C44.5,17.5 41.5,23.5 42.2,30 C42.6,35 40.4,39.4 35.6,42.6 C42,43.6 47.4,40.6 49.6,35.4 C51,31.4 51.4,26 52.4,22 Z", HAIR),
-    # near shin and shoe (pedal down and forward)
-    stroke("M57.6,63.5 L56.2,71.4", SKIN, 4.0),
-    stroke("M53.8,73.2 L59.4,73.2", BROWN, 3.2),
-    # long skirt, fluttering behind the saddle
-    fill("M44.2,43.4 L52.4,44.8 C56.6,47.6 60.2,51.8 60.8,56 L60,65 Q54.4,67.8 49.2,66.2 C47.2,62.4 44,60.4 39.6,61.6 C42,55.6 43,49.4 44.2,43.4 Z", SKIRT),
-    # knit top, arm reaching to the bar, hand
-    stroke("M47.8,44.2 L51.4,31.4", CREAM, 8.6),
-    stroke("M51.8,31.8 L56.8,38.6 L60.4,40.6", SLEEVE, 4.2),
-    fill(circle(61.2, 41.1, 1.9), SKIN),
-    # neck, head
-    stroke("M52.4,28.6 L53.3,26", SKIN, 3.4),
-    fill(circle(54.6, 21.4, 6.3), SKIN),
-    # hair over the crown and beside the face, blush, smile, glasses
-    fill("M48.3,22.5 C47.5,16.4 51.6,13.6 55.6,14 C58.4,14.2 60.2,15.8 60.8,17.6 C57.6,16.9 54.2,17.6 52.6,20.2 C52,23 51.6,25.6 50.4,27.4 C49,26.4 48.4,24.6 48.3,22.5 Z", HAIR),
-    fill(circle(57.2, 24.5, 1.3), BLUSH, 0.85),
-    stroke("M58.7,25.5 Q59.6,26.3 60.4,25.5", BROWN, 0.7),
-    stroke(circle(58.4, 21.5, 1.9), BROWN, 0.8),
-    stroke("M56.5,21.3 L53,20.9", BROWN, 0.7),
-    # beret, tilted back
-    fill("M47,17.4 C46.6,12.4 51.8,9.8 56.6,10.5 C60.8,11.1 62.8,13.9 61.8,16.2 C57,14.7 51.6,15.5 47,17.4 Z", BERET),
-    stroke("M54.6,10.4 L55,8.9", BERET, 1.3),
+    # wheels (mostly below the frame), frame tube, fork
+    stroke(circle(22, 99, 15), WHITE, 3.4),
+    stroke(circle(80, 99, 15), WHITE, 3.4),
+    stroke("M73.8,76 L56,87", CREAM, 2.6),
+    stroke("M72.6,69.5 L74,78 L80,99", CREAM, 2.6),
+    # basket with flowers
+    stroke("M79.6,66.4 L79,61.6 M83,66.4 L83.4,60 M86.4,66.4 L87.4,62", LEAF, 1.4),
+    fill(circle(79, 60.6, 2.4), WHITE),
+    fill(circle(83.4, 58.6, 2.8), WHITE),
+    fill(circle(87.5, 61, 2.2), WHITE),
+    fill(circle(83.4, 58.6, 1.1), "#FFCB6B"),
+    fill(circle(79, 60.6, 0.9), "#FFCB6B"),
+    fill("M76.2,66.2 L90,66.2 Q91,66.2 90.8,67.2 L89,75.2 Q88.8,76.2 87.8,76.2 L78.4,76.2 Q77.4,76.2 77.2,75.2 L75.4,67.2 Q75.2,66.2 76.2,66.2 Z", WICKER),
+    stroke("M76.4,69.4 L89.8,69.4 M77.2,72.6 L89,72.6", "#D9995F", 0.8),
+    # hair behind the head, lifted back by the ride
+    fill("M61.6,33.6 C60.6,29.8 57.4,27.4 53.4,27.6 C47.6,27.9 43.6,32 43.2,38 C43,42.6 42.4,46 39.6,49 C37.6,51.2 35,52.4 32,52.4 C34.6,54.6 38,55.2 41,54.4 C39.6,56.6 37.4,58 34.6,58.6 C39,60.4 44.6,59.4 48.4,56.4 C51.4,54 53.4,51 54.4,48 L56,36 Z", HAIR),
+    # neck, blouse, skirt
+    fill("M55,45 L60.8,47.6 C60.2,50 60.4,52.2 61.4,54 L52.6,54.4 C54.2,51.6 55,48.4 55,45 Z", SKIN_SHADE),
+    fill("M52.6,52.4 C49,53.4 46,56 44.6,60.5 C43,66 42,72 41.6,78.4 L54.2,79 C55,74.4 57.4,70 60.4,66.6 C62,63.4 62.2,59.4 61,55.6 C60.4,54.4 59.6,53.6 58.8,53.2 C57,54.6 54.6,54.2 52.6,52.4 Z", CREAM),
+    fill("M41.7,77.2 L54.3,77.8 C59,79.6 63.6,83.4 65.4,88.4 L65,108 L38,108 C39.4,98 40.6,87 41.7,77.2 Z", SKIRT),
+    # handlebar, arm reaching to it, hand
+    stroke("M72.6,69.5 Q71.6,66.2 68.4,66.8", WHITE, 2.4),
+    stroke("M51.6,58.6 L58.4,69.2 L67.6,67.8", SLEEVE, 5.6),
+    fill(circle(69.6, 67.3, 2.1), SKIN),
+    # face in profile
+    fill("M56,33 L61,33.5 C62.6,34.8 63.3,36.4 63.2,37.6 C62.8,38.2 62.7,38.6 63,39 L65.2,41.3 C65.3,41.9 64.6,42.2 63.7,42.2 C64.3,42.8 64.4,43.2 64.1,43.6 L63.5,43.9 C64,44.3 64.1,44.8 63.7,45.2 C63.2,45.6 63.3,46.2 63.4,46.8 C63.2,47.8 62.2,48.4 60.8,48.3 C58.5,48 56.5,47 55.5,45.5 L54,38 Z", SKIN),
+    fill(circle(60.2, 43.2, 1.3), BLUSH, 0.45),
+    stroke("M60.2,39.5 Q61.3,40.2 62.3,39.6", HAIR, 0.7),
+    stroke("M60,37.8 Q61.4,37.1 62.7,37.7", HAIR, 0.5),
+    fill("M62.8,43.3 Q63.7,43 64.2,43.5 Q63.9,43.9 63.5,43.9 Q63.9,44.2 63.8,44.7 Q63.2,44.9 62.8,44.4 Z", LIPS),
+    # fringe and the lock beside the cheek, highlight, earring
+    fill(circle(60.2, 32.4, 1.4), HAIR),
+    fill("M60.4,31.6 C62.2,33 63.3,35 63.3,37.2 C61.2,36.3 59,36.6 57.5,37.8 C56.2,39.8 55.8,42.4 56,45.4 C56,47.8 55.4,49.8 54.2,51 C52.4,48 52,44 52.4,40 C52.8,35.6 56,32 60.4,31.6 Z", HAIR),
+    stroke("M46.6,35.4 Q49.6,30.8 55.6,30.6", HAIR_LIGHT, 0.9),
+    fill(circle(55.9, 47.2, 0.85), WHITE),
 ]
 
-# Foreground fits the adaptive-icon safe zone (66 dp circle) after this transform about the centre.
-FG_SCALE, FG_DY = 0.8, 4.0
+# Foreground fits the adaptive-icon safe zone after this transform about the centre.
+FG_SCALE, FG_DY = 0.86, -3.0
 
 
 # ---- path flattening -------------------------------------------------------------------------
@@ -260,7 +243,7 @@ def previews(out):
     sheet.save(os.path.join(out, "preview.png"))
 
 
-LOGO_SCALE, LOGO_DY = 1.05, 0.5
+LOGO_SCALE, LOGO_DY = 1.0, 0.0
 
 
 # ---- Android vector drawables ----------------------------------------------------------------
@@ -323,7 +306,7 @@ def drawables(res):
           HEAD.format(aapt="", size=24) + group([s for s in RIDER if s.get("alpha", 1) == 1], STAT_SCALE, STAT_DY, mono="#FFFFFF") + "</vector>\n")
 
 
-STAT_SCALE, STAT_DY = 1.42, 12.0
+STAT_SCALE, STAT_DY = 1.1, -8.0
 
 if __name__ == "__main__":
     res, out = sys.argv[1], sys.argv[2]

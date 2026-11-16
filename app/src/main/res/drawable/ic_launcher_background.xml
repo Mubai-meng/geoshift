@@ -4,13 +4,11 @@
     <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
         <aapt:attr name="android:fillColor">
             <gradient android:type="linear" android:startX="54" android:startY="0" android:endX="54" android:endY="108">
-                <item android:offset="0" android:color="#FFCF8F"/>
-                <item android:offset="1" android:color="#F27F62"/>
+                <item android:offset="0" android:color="#FFE0B5"/>
+                <item android:offset="1" android:color="#F58F78"/>
             </gradient>
         </aapt:attr>
     </path>
-    <path android:fillColor="#29FFFFFF" android:pathData="M45,38 A25,25 0 1,0 95,38 A25,25 0 1,0 45,38 Z"/>
-    <path android:fillColor="#2EFFFFFF" android:pathData="M52,38 A18,18 0 1,0 88,38 A18,18 0 1,0 52,38 Z"/>
-    <path android:fillColor="#29FFFFFF" android:pathData="M0,82.6 Q54,76.2 108,82.6 L108,108 L0,108 Z"/>
-    <path android:fillColor="#24FFFFFF" android:pathData="M0,92 Q54,86 108,92 L108,108 L0,108 Z"/>
+    <path android:fillColor="#9EFFC978" android:pathData="M25,47 A27,27 0 1,0 79,47 A27,27 0 1,0 25,47 Z"/>
+    <path android:fillColor="#29FFFFFF" android:pathData="M0,93 Q54,88 108,93 L108,108 L0,108 Z"/>
 </vector>
