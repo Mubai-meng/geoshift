@@ -175,6 +175,21 @@ fun MapScreen(
             delay(15_000)
         }
     }
+    // Open on the phone's real position rather than the last simulated one: once per launch, only when
+    // not simulating, and never after the user has moved the map or picked a point meanwhile.
+    LaunchedEffect(Unit) {
+        if (vm.launchCentered || !s.caps.preciseLocation) return@LaunchedEffect
+        vm.launchCentered = true
+        if (r.enabled) return@LaunchedEffect
+        var shown = camera.target
+        fun untouched() = selected == null && vm.state.value?.runtime?.enabled != true &&
+            Geo.distance(camera.target, shown) < 30.0
+        withContext(Dispatchers.IO) { vm.engine.refreshRealPosition() }
+        vm.engine.realPosition.value?.let { if (untouched()) { onCenter(CenterRequest(it)); shown = it } }
+        // The cached fix may be old: correct it with a fresh one (silently; up to ~15 s indoors).
+        val fresh = withContext(Dispatchers.IO) { runCatching { vm.engine.deviceLocation() }.getOrNull() } ?: return@LaunchedEffect
+        if (untouched() && Geo.distance(fresh, shown) > 30.0) onCenter(CenterRequest(fresh))
+    }
     var sdkFailed by remember(sdkKey) { mutableStateOf(false) }
     val officialAmap = s.settings.mapSource == MapSource.AMAP && sdkKey.isNotEmpty() && s.settings.privacyAccepted &&
         sdk.mapSupported && !sdkFailed

@@ -61,6 +61,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val engine = Geoshift.get(app)
     private val store = engine.store
 
+    /** The map has already been centred on the real position for this launch (done once, not per tab visit). */
+    var launchCentered = false
+
     private val records = combine(store.places.items, store.routes.items, store.wifiPresets.items, store.cellPresets.items, store.environments.items) { a, b, c, d, e ->
         Records(a, b, c, d, e)
     }
