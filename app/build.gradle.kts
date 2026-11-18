@@ -13,8 +13,8 @@ android {
         applicationId = "app.geoshift"
         minSdk = 26
         targetSdk = 35
-        versionCode = 65
-        versionName = "3.3.8"
+        versionCode = 66
+        versionName = "3.3.9"
         // Native map code is per ABI. 64-bit ARM only (32-bit phones are no longer supported: it halves the map library);
         // build with -Pemulator to add x86_64 for the emulator.
         ndk {
