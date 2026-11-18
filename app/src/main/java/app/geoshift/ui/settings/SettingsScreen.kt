@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.VerifiedUser
+import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.CleaningServices
@@ -203,6 +204,9 @@ fun SettingsScreen(
             RowDivider()
             SettingRow("外观", null, icon = Icons.Rounded.Palette,
                 value = st.theme.label, onClick = { choice = "theme" })
+            RowDivider()
+            SettingRow("震动反馈", "按键、开关与摇杆操作的触感震动", icon = Icons.Rounded.Vibration, checked = st.haptics,
+                onCheckedChange = { on -> set(if (on) "震动反馈已开启" else "震动反馈已关闭") { it.copy(haptics = on) } })
         }
 
         SectionTitle("高级")

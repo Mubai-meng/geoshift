@@ -67,6 +67,7 @@ data class Settings(
     val onlySelected: Boolean = false,
     val packages: List<String> = emptyList(),
     val theme: ThemeMode = ThemeMode.SYSTEM,
+    val haptics: Boolean = true,
     val mapSource: MapSource = MapSource.AMAP,
     val mapTipDismissed: Boolean = false,
     val roadProfile: RoadProfile = RoadProfile.STRAIGHT,

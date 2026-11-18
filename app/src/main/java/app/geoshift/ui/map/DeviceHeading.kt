@@ -10,10 +10,8 @@ import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -23,14 +21,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * The direction the top of the phone is pointing, in degrees clockwise from **magnetic** north
- * (0 = north, 90 = east), or `null` when the device has no rotation-vector sensor. Fused from the
- * accelerometer, magnetometer and gyroscope, so it is far steadier than a bare magnetometer. The
- * reading is screen-rotation compensated and low-pass filtered to stop the needle jittering.
- *
- * Only listens while the owning composable is in the STARTED state, so it costs nothing in the
- * background. Magnetic north is close enough for an on-screen compass; true north would need the
- * local declination, which is why this is not fed back into any simulated position.
+ * The direction the top of the phone is pointing, in degrees clockwise from magnetic north
+ * (0 = north, 90 = east), so a physical compass needle pointing to North rotates by `-heading`.
+ * Uses TYPE_ROTATION_VECTOR when available, with automatic fallback to TYPE_GEOMAGNETIC_ROTATION_VECTOR
+ * or Accelerometer + Magnetometer.
  */
 @Composable
 fun rememberDeviceHeading(): State<Float?> {
@@ -38,45 +32,79 @@ fun rememberDeviceHeading(): State<Float?> {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val heading = remember { mutableStateOf<Float?>(null) }
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
-    val sensor = remember { sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) }
 
-    DisposableEffect(lifecycle, sensorManager, sensor) {
-        if (sensorManager == null || sensor == null) {
+    DisposableEffect(lifecycle, sensorManager) {
+        if (sensorManager == null) {
             heading.value = null
             return@DisposableEffect onDispose { }
         }
+        val rotSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: sensorManager.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+        val accelSensor = if (rotSensor == null) sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) else null
+        val magSensor = if (rotSensor == null) sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) else null
+
+        if (rotSensor == null && (accelSensor == null || magSensor == null)) {
+            heading.value = null
+            return@DisposableEffect onDispose { }
+        }
+
         val rotation = FloatArray(9)
         val remapped = FloatArray(9)
         val orientation = FloatArray(3)
-        // Smooth on the unit circle so 359° → 1° averages through north, not through south.
+        val gravity = FloatArray(3)
+        val geomagnetic = FloatArray(3)
+        var hasGravity = false
+        var hasMag = false
         var smoothSin = Float.NaN
         var smoothCos = Float.NaN
-        val alpha = 0.12f // lower = steadier, slower to settle
+        val alpha = 0.16f
+
+        fun publishFromMatrix() {
+            val display = displayRotation(context)
+            val (axisX, axisY) = when (display) {
+                Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+                Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+                Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+                else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
+            }
+            SensorManager.remapCoordinateSystem(rotation, axisX, axisY, remapped)
+            SensorManager.getOrientation(remapped, orientation)
+            val azimuth = orientation[0]
+            val s = sin(azimuth)
+            val c = cos(azimuth)
+            if (smoothSin.isNaN()) {
+                smoothSin = s
+                smoothCos = c
+            } else {
+                smoothSin += alpha * (s - smoothSin)
+                smoothCos += alpha * (c - smoothCos)
+            }
+            val deg = Math.toDegrees(atan2(smoothSin, smoothCos).toDouble()).toFloat()
+            heading.value = (deg + 360f) % 360f
+        }
 
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
-                SensorManager.getRotationMatrixFromVector(rotation, event.values)
-                // Compensate for how the screen is turned relative to the device.
-                val display = displayRotation(context)
-                val (axisX, axisY) = when (display) {
-                    Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
-                    Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
-                    Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
-                    else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
+                when (event.sensor.type) {
+                    Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR -> {
+                        SensorManager.getRotationMatrixFromVector(rotation, event.values)
+                        publishFromMatrix()
+                    }
+                    Sensor.TYPE_ACCELEROMETER -> {
+                        System.arraycopy(event.values, 0, gravity, 0, 3)
+                        hasGravity = true
+                        if (hasMag && SensorManager.getRotationMatrix(rotation, null, gravity, geomagnetic)) {
+                            publishFromMatrix()
+                        }
+                    }
+                    Sensor.TYPE_MAGNETIC_FIELD -> {
+                        System.arraycopy(event.values, 0, geomagnetic, 0, 3)
+                        hasMag = true
+                        if (hasGravity && SensorManager.getRotationMatrix(rotation, null, gravity, geomagnetic)) {
+                            publishFromMatrix()
+                        }
+                    }
                 }
-                SensorManager.remapCoordinateSystem(rotation, axisX, axisY, remapped)
-                SensorManager.getOrientation(remapped, orientation)
-                val azimuth = orientation[0] // radians, -π..π
-                val s = sin(azimuth)
-                val c = cos(azimuth)
-                if (smoothSin.isNaN()) {
-                    smoothSin = s; smoothCos = c
-                } else {
-                    smoothSin += alpha * (s - smoothSin)
-                    smoothCos += alpha * (c - smoothCos)
-                }
-                val deg = Math.toDegrees(atan2(smoothSin, smoothCos).toDouble()).toFloat()
-                heading.value = (deg + 360f) % 360f
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -85,7 +113,12 @@ fun rememberDeviceHeading(): State<Float?> {
         var listening = false
         fun start() {
             if (!listening) {
-                sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+                if (rotSensor != null) {
+                    sensorManager.registerListener(listener, rotSensor, SensorManager.SENSOR_DELAY_UI)
+                } else {
+                    sensorManager.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
+                    sensorManager.registerListener(listener, magSensor, SensorManager.SENSOR_DELAY_UI)
+                }
                 listening = true
             }
         }

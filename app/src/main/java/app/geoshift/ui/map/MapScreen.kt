@@ -439,7 +439,17 @@ fun MapScreen(
                         onCenter(CenterRequest(camera.target, camera.zoom, bearing = 0.0))
                         vm.toast("已回正正北")
                     } else {
-                        vm.toast("当前已指向正北（0°）")
+                        val h = deviceHeading
+                        if (h != null) {
+                            val norm = ((h % 360f + 360f) % 360f)
+                            val dir = when (((norm / 45f) + 0.5f).toInt() % 8) {
+                                0 -> "正北"; 1 -> "东北"; 2 -> "正东"; 3 -> "东南"
+                                4 -> "正南"; 5 -> "西南"; 6 -> "正西"; else -> "西北"
+                            }
+                            vm.toast("当前朝向：$dir ${norm.toInt()}°")
+                        } else {
+                            vm.toast("当前已指向正北（0°）")
+                        }
                     }
                 },
             )
@@ -707,12 +717,9 @@ private fun MapTool(
 }
 
 /**
- * Compass dial widget: 3D beveled red/slate needle pointing to True North.
- * Rotates smoothly in real time with map bearing; tap to reset bearing to True North.
- *
- * When [deviceHeading] is available (degrees clockwise from magnetic north, from the phone's
- * rotation-vector sensor) a translucent blue beam shows where the phone itself is pointing within
- * the geographic dial — exactly as a navigation app's "my location" cone does.
+ * Standard compass widget: 3D beveled red/slate needle + dial ticks pointing to North.
+ * Rotates smoothly in real time as you turn the phone ([deviceHeading]) or rotate the map ([bearing]);
+ * tap to reset map bearing to True North (0°).
  */
 @Composable
 private fun MapCompass(
@@ -722,7 +729,9 @@ private fun MapCompass(
     onClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
-    val signed = signedBearing(bearing)
+    // Combine phone sensor azimuth (if available) with map rotation so the red needle points to North.
+    val totalHeading = (deviceHeading?.toDouble() ?: 0.0) + bearing
+    val signed = signedBearing(totalHeading)
     // Unwrapped needle angle: crossing north (359° → 1°) turns 2°, not a full circle.
     val needle = remember { floatArrayOf(0f) }
     val delta = ((-signed - needle[0]) % 360.0 + 540.0) % 360.0 - 180.0
@@ -732,24 +741,12 @@ private fun MapCompass(
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "compass",
     )
-    val isFacingNorth = abs(signed) < 1.0
-    // The phone's heading placed on the same geographic dial as the needle: a geographic bearing θ
-    // sits at (θ - mapBearing) on screen, so north (the red needle) and this beam stay consistent.
-    val deviceOnDial = deviceHeading?.let { (it - bearing).toFloat() }
-    val deviceNeedle = remember { floatArrayOf(0f) }
-    if (deviceOnDial != null) {
-        val d = ((deviceOnDial - deviceNeedle[0]) % 360f + 540f) % 360f - 180f
-        deviceNeedle[0] += d
-    }
-    val animatedDevice by animateFloatAsState(
-        targetValue = deviceNeedle[0],
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "deviceHeading",
-    )
+    val tickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+    val cardinalColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
 
     Surface(
         onClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         },
         shape = CircleShape,
@@ -757,37 +754,38 @@ private fun MapCompass(
         modifier = modifier.size(48.dp).glass(CircleShape),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            // Phone-heading beam, under the needle: shows where the device is actually pointing.
-            if (deviceOnDial != null) {
-                Canvas(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .rotate(animatedDevice)
-                ) {
-                    val cx = size.width / 2f
-                    val cy = size.height / 2f
-                    val len = size.height * 0.46f
-                    val halfW = size.width * 0.15f
-                    val beam = Path().apply {
-                        moveTo(cx, cy - len)
-                        lineTo(cx - halfW, cy)
-                        lineTo(cx + halfW, cy)
-                        close()
-                    }
-                    drawPath(beam, color = Color(0x4D1A7CFF))
-                    drawPath(beam, color = Color(0xAA1A7CFF), style = Stroke(width = size.width * 0.02f))
-                    drawCircle(color = Color(0xFF1A7CFF), radius = halfW * 0.55f, center = Offset(cx, cy - len))
-                }
-            }
             Canvas(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(36.dp)
                     .rotate(animatedBearing)
             ) {
                 val cx = size.width / 2f
                 val cy = size.height / 2f
-                val halfW = size.width * 0.18f
-                val len = size.height * 0.44f
+                val outerR = size.width * 0.47f
+
+                // Outer compass dial ticks (every 30°, with cardinal ticks longer)
+                for (i in 0 until 12) {
+                    val angleRad = Math.toRadians((i * 30.0) - 90.0)
+                    val isCardinal = i % 3 == 0
+                    val innerTickR = outerR * (if (isCardinal) 0.80f else 0.87f)
+                    val sx = cx + (innerTickR * kotlin.math.cos(angleRad)).toFloat()
+                    val sy = cy + (innerTickR * kotlin.math.sin(angleRad)).toFloat()
+                    val ex = cx + (outerR * kotlin.math.cos(angleRad)).toFloat()
+                    val ey = cy + (outerR * kotlin.math.sin(angleRad)).toFloat()
+                    drawLine(
+                        color = when {
+                            i == 0 -> Color(0xFFDC3545)
+                            isCardinal -> cardinalColor
+                            else -> tickColor
+                        },
+                        start = Offset(sx, sy),
+                        end = Offset(ex, ey),
+                        strokeWidth = if (isCardinal) size.width * 0.045f else size.width * 0.03f,
+                    )
+                }
+
+                val halfW = size.width * 0.135f
+                val len = size.height * 0.34f
 
                 // North Needle - 3D beveled red
                 val northLeft = Path().apply {
@@ -824,22 +822,9 @@ private fun MapCompass(
                 drawPath(southRight, color = Color(0xFFBCC5D4))
 
                 // Center pivot
-                drawCircle(color = Color.White, radius = halfW * 0.72f, center = Offset(cx, cy))
-                drawCircle(color = Color(0xFF1E2330), radius = halfW * 0.42f, center = Offset(cx, cy))
+                drawCircle(color = Color.White, radius = halfW * 0.65f, center = Offset(cx, cy))
+                drawCircle(color = Color(0xFF1E2330), radius = halfW * 0.36f, center = Offset(cx, cy))
             }
-
-            // Fixed North "N" mark at the top of dial
-            Text(
-                text = "N",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-                color = if (isFacingNorth) Color(0xFFDC3545) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 2.dp),
-            )
         }
     }
 }

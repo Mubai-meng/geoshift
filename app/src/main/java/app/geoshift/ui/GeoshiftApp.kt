@@ -75,6 +75,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -87,6 +88,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -119,7 +121,17 @@ private enum class Page { MAIN, WIFI, CELL, SETUP, AMAP_KEY }
 fun GeoshiftApp(vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -> Unit, onImport: () -> Unit) {
     val state by vm.state.collectAsState()
     val s = state
-    GeoshiftTheme(s?.settings?.theme ?: ThemeMode.SYSTEM) {
+    val systemHaptic = LocalHapticFeedback.current
+    val hapticsEnabled = s?.settings?.haptics ?: true
+    val appHaptic = remember(systemHaptic, hapticsEnabled) {
+        object : HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+                if (hapticsEnabled) systemHaptic.performHapticFeedback(hapticFeedbackType)
+            }
+        }
+    }
+    CompositionLocalProvider(LocalHapticFeedback provides appHaptic) {
+        GeoshiftTheme(s?.settings?.theme ?: ThemeMode.SYSTEM) {
         val dark = isDark(s?.settings?.theme ?: ThemeMode.SYSTEM)
         val view = LocalView.current
         SideEffect {
@@ -146,6 +158,7 @@ fun GeoshiftApp(vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -
                 },
                 confirmButton = { androidx.compose.material3.TextButton(onClick = vm::hideFrameworkHelp) { Text("知道了") } },
             )
+        }
         }
     }
 }

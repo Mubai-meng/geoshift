@@ -209,12 +209,18 @@ class JoystickService : Service() {
         private var startWinX = 0
         private var startWinY = 0
 
+        private fun vibrate(constant: Int) {
+            if (engine.store.settings.value.haptics) {
+                runCatching { performHapticFeedback(constant) }
+            }
+        }
+
         private val longPressRunnable = Runnable {
             if (!collapsed && mode == MODE_STICK && maxMoveFromDown < touchSlop * 0.6f && hypot(dx, dy) < 0.14f) {
                 mode = MODE_DRAG_WINDOW
                 dx = 0f
                 dy = 0f
-                runCatching { performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+                vibrate(HapticFeedbackConstants.LONG_PRESS)
                 invalidate()
             }
         }
@@ -385,7 +391,7 @@ class JoystickService : Service() {
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         if (e.actionMasked == MotionEvent.ACTION_UP && mode == MODE_COLLAPSED_TAP) {
-                            runCatching { performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                            vibrate(HapticFeedbackConstants.CLOCK_TICK)
                             setCollapsed(false)
                             mode = MODE_NONE
                             return true
@@ -434,7 +440,7 @@ class JoystickService : Service() {
                             mode = MODE_DRAG_WINDOW
                             dx = 0f
                             dy = 0f
-                            runCatching { performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                            vibrate(HapticFeedbackConstants.CLOCK_TICK)
                         }
                         else -> {
                             mode = MODE_STICK
@@ -486,13 +492,13 @@ class JoystickService : Service() {
                                 return true
                             }
                             MODE_MINIMIZE_CANDIDATE -> {
-                                runCatching { performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                                vibrate(HapticFeedbackConstants.CLOCK_TICK)
                                 mode = MODE_NONE
                                 setCollapsed(true)
                                 return true
                             }
                             MODE_SPEED_CANDIDATE -> {
-                                runCatching { performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                                vibrate(HapticFeedbackConstants.CLOCK_TICK)
                                 cycleSpeedMode()
                                 mode = MODE_NONE
                                 invalidate()
