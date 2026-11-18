@@ -382,7 +382,7 @@ class Geoshift private constructor(context: Context) {
 
     /** One joystick step: move [metres] towards [heading]. */
     fun joystickStep(metres: Double, heading: Double, speed: Double) {
-        store.updateRuntime(persist = false) { r ->
+        store.updateRuntime(persist = metres <= 0) { r ->
             if (metres <= 0) r.copy(speed = 0.0) else r.copy(position = Geo.move(r.position, metres, heading), bearing = heading, speed = speed)
         }
         if (running) SimulationService.nudge()

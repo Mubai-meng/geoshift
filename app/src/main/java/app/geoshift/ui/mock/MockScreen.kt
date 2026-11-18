@@ -178,7 +178,7 @@ fun MockScreen(
                     accentColor = palette.blue) {
                     if (r.enabled && !r.routeMode) vm.run("模拟定位已关闭") { stop() } else vm.run("模拟定位已开启") { startPoint() }
                 }
-                ToggleTile(Icons.Rounded.SportsEsports, "摇杆", if (r.joystick) "悬浮窗已显示" else "拖动圆盘移动", r.joystick, Modifier.weight(1f),
+                ToggleTile(Icons.Rounded.SportsEsports, "摇杆", if (r.joystick) "悬浮窗已显示（可拖动）" else "推杆移动 · 可自由拖动", r.joystick, Modifier.weight(1f),
                     accentColor = palette.pink) {
                     vm.run(if (r.joystick) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { joystick(!r.joystick) }
                 }

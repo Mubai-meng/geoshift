@@ -16,7 +16,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -109,6 +113,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.geoshift.core.Geo
@@ -418,9 +424,10 @@ fun MapScreen(
 
         // ---- Right: floating tools ----
         Column(
-            // Centred between the top bar and the bottom card, so neither covers a tool.
+            // Centred between the top bar and the bottom card, scrollable so small screens never clip tools.
             Modifier.align(Alignment.CenterEnd).statusBarsPadding()
-                .padding(top = 72.dp, end = 12.dp, bottom = with(density) { bottomCardHeight.toDp() }),
+                .padding(top = 72.dp, end = 12.dp, bottom = with(density) { bottomCardHeight.toDp() })
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -456,8 +463,15 @@ fun MapScreen(
             ToolGroup {
                 MapTool(Icons.Rounded.PinDrop, "回到模拟位置") { onCenter(CenterRequest(r.position)) }
                 ToolDivider()
-                MapTool(Icons.Rounded.MyLocation, "真实位置（先停止模拟）") {
-                    vm.run<LatLon>(onDone = { select(it); onCenter(CenterRequest(it, 16.0)) }) { deviceLocation() }
+                MapTool(Icons.Rounded.MyLocation, "真实位置") {
+                    val cached = realPosition
+                    if (r.enabled && cached != null) {
+                        select(cached)
+                        onCenter(CenterRequest(cached, 16.0))
+                        vm.toast("已定位到模拟前的真实位置")
+                    } else {
+                        vm.run<LatLon>(onDone = { select(it); onCenter(CenterRequest(it, 16.0)) }) { deviceLocation() }
+                    }
                 }
             }
             ToolGroup {
@@ -471,13 +485,13 @@ fun MapScreen(
                 }
             }
             ToolGroup {
-                MapTool(Icons.Rounded.Add, "放大") {
+                MapTool(Icons.Rounded.Add, "放大（长按连续放大）", repeatOnHold = true) {
                     val next = (camera.zoom + 1.0).coerceAtMost(19.0)
                     camera.zoom = next
                     onCenter(CenterRequest(camera.target, next))
                 }
                 ToolDivider()
-                MapTool(Icons.Rounded.Remove, "缩小") {
+                MapTool(Icons.Rounded.Remove, "缩小（长按连续缩小）", repeatOnHold = true) {
                     val next = (camera.zoom - 1.0).coerceAtLeast(3.0)
                     camera.zoom = next
                     onCenter(CenterRequest(camera.target, next))
@@ -646,11 +660,44 @@ private fun MapTool(
     icon: ImageVector,
     description: String,
     active: Boolean = false,
+    repeatOnHold: Boolean = false,
     iconModifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
+    val currentOnClick by rememberUpdatedState(onClick)
+    val interactionModifier = if (repeatOnHold) {
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                currentOnClick()
+                val held = withTimeoutOrNull(280L) {
+                    waitForUpOrCancellation()
+                    false
+                } ?: true
+                if (held) {
+                    while (true) {
+                        val up = withTimeoutOrNull(130L) {
+                            waitForUpOrCancellation()
+                            true
+                        } ?: false
+                        if (up) break
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        currentOnClick()
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier.clickable {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentOnClick()
+        }
+    }
     Box(
-        Modifier.size(48.dp).padding(3.dp).clip(CircleShape).clickable(onClick = onClick)
+        Modifier.size(48.dp).padding(3.dp).clip(CircleShape)
+            .then(interactionModifier)
             .background(if (active) palette.blue else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {

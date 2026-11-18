@@ -87,6 +87,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -273,6 +275,7 @@ private fun Modifier.capsuleShadow(radius: Dp, offsetY: Dp, color: Color): Modif
 @Composable
 private fun TabBar(selected: Tab, simulating: Boolean, hazeState: dev.chrisbanes.haze.HazeState, dark: Boolean, modifier: Modifier = Modifier, onSelect: (Tab) -> Unit) {
     val p = palette
+    val haptic = LocalHapticFeedback.current
     // Built once per theme: a new style object on every recomposition would make Haze redo its setup.
     val barStyle = remember(dark) {
         GlassStyle.regular.then {
@@ -333,7 +336,10 @@ private fun TabBar(selected: Tab, simulating: Boolean, hazeState: dev.chrisbanes
                 val on = t == selected
                 val tint = if (on) p.blue else MaterialTheme.colorScheme.onSurface
                 Column(
-                    Modifier.weight(1f).fillMaxHeight().clip(CircleShape).clickable { onSelect(t) },
+                    Modifier.weight(1f).fillMaxHeight().clip(CircleShape).clickable {
+                        if (t != selected) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(t)
+                    },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {

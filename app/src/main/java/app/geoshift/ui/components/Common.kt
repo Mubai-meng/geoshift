@@ -134,11 +134,19 @@ fun rowTint(icon: ImageVector?): Color {
 @Composable
 fun IosSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: Boolean = true, modifier: Modifier = Modifier) {
     val p = palette
+    val haptic = LocalHapticFeedback.current
     val track by animateColorAsState(if (checked) p.green else if (p.dark) Color(0xFF39393D) else Color(0xFFE3E3E8), label = "track")
     val offset by animateDpAsState(if (checked) 20.dp else 0.dp, label = "knob")
     Box(
         modifier.size(51.dp, 31.dp).clip(CircleShape).background(track)
-            .let { if (onCheckedChange != null && enabled) it.toggleable(checked, onValueChange = onCheckedChange) else it }
+            .let {
+                if (onCheckedChange != null && enabled) {
+                    it.toggleable(checked, onValueChange = { next ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onCheckedChange(next)
+                    })
+                } else it
+            }
             .alpha(if (enabled) 1f else 0.5f).padding(2.dp),
     ) {
         Box(Modifier.offset(x = offset).size(27.dp).shadow(2.dp, CircleShape).clip(CircleShape).background(Color.White))
@@ -149,6 +157,7 @@ fun IosSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: 
 @Composable
 fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
     val p = palette
+    val haptic = LocalHapticFeedback.current
     Row(
         modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(17.dp)).background(p.fill).padding(2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -160,7 +169,10 @@ fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifie
                     .let { if (on) it.shadow(1.5.dp, RoundedCornerShape(15.dp)) else it }
                     .clip(RoundedCornerShape(15.dp))
                     .background(if (on) (if (p.dark) Color(0xFF636366) else Color.White) else Color.Transparent)
-                    .clickable { onSelect(i) },
+                    .clickable {
+                        if (i != selected) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(i)
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
@@ -260,8 +272,12 @@ fun ToggleTile(
 ) {
     val accent = accentColor ?: palette.green
     val shape = MaterialTheme.shapes.large
+    val haptic = LocalHapticFeedback.current
     Surface(
-        modifier = modifier.clip(shape).clickable(enabled = enabled, onClick = onClick),
+        modifier = modifier.clip(shape).clickable(enabled = enabled) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
         shape = shape,
         border = BorderStroke(0.6.dp, if (on) accent.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
         color = MaterialTheme.colorScheme.surface,
