@@ -105,9 +105,14 @@ class Geoshift private constructor(context: Context) {
         val s = store.settings.value
         if (!s.privacyAccepted || store.runtime.value.enabled) return
         if (!s.xposed) { SimulationService.removeLeftoverProviders(app); return }
-        if (!bridge.ping()) return
+        // system_server may be slow to answer right after this process starts; a missed answer here
+        // would make the first push below switch the running simulation off.
+        if (!(1..5).any { attempt -> bridge.ping() || run { Thread.sleep(400L * attempt); false } }) return
         val c = bridge.hookConfig ?: return
-        if (!c.active || !c.sameBoot(bridge.bootAt())) return
+        // What system_server reports is what it acts on now: a config from an earlier boot was already
+        // dropped when it loaded. Comparing boot moments again here broke after hours of simulating,
+        // once network time had nudged the wall clock by more than the tolerance.
+        if (!c.active) return
         // A playing route whose points are gone cannot be shown or continued: let it stop.
         val route = c.route
         val saved = route?.let { a -> store.routes.items.value.firstOrNull { it.id == a.routeId } }

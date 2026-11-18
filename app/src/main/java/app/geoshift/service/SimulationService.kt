@@ -77,7 +77,11 @@ class SimulationService : Service() {
         if (running === this) running = null
         clock.removeCallbacksAndMessages(null)
         removeProviders()
-        if (engine.store.runtime.value.enabled) engine.store.updateRuntime { it.copy(enabled = false, paused = false, speed = 0.0, anchor = null) }
+        // With Xposed, system_server keeps simulating on its own; some ROMs destroy the service when
+        // the task is swiped away, and that must not end the simulation. Only the mock backend stops
+        // here (its providers are gone). A deliberate stop has already cleared the runtime.
+        if (engine.store.settings.value.backend == Backend.MOCK && engine.store.runtime.value.enabled)
+            engine.store.updateRuntime { it.copy(enabled = false, paused = false, speed = 0.0, anchor = null) }
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
