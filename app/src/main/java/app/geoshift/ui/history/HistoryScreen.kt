@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -206,7 +205,7 @@ fun HistoryScreen(
             placeholder = { Text(when (tab) { 1 -> "搜索路线"; 2 -> "搜索环境记录"; else -> "搜索位置" }) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "清除") } },
-            singleLine = true, shape = RoundedCornerShape(12.dp),
+            singleLine = true, shape = MaterialTheme.shapes.medium,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = app.geoshift.ui.theme.palette.fill,
                 unfocusedContainerColor = app.geoshift.ui.theme.palette.fill,
@@ -246,8 +245,8 @@ fun HistoryScreen(
                             },
                             trailingContent = { IconBadge(row.icon) },
                             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            modifier = Modifier.clip(RoundedCornerShape(18.dp))
-                                .border(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
+                            modifier = Modifier.clip(MaterialTheme.shapes.large)
+                                .border(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large)
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     selectedIds = if (isSelected) selectedIds - row.id else selectedIds + row.id
@@ -370,7 +369,7 @@ private fun SwipeRow(row: HistoryRow, onClick: () -> Unit, onDelete: () -> Unit)
         state = state,
         enableDismissFromStartToEnd = false,
         backgroundContent = {
-            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)).background(Danger).padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
+            Box(Modifier.fillMaxSize().clip(MaterialTheme.shapes.large).background(Danger).padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
                 Icon(Icons.Rounded.Delete, "删除", tint = androidx.compose.ui.graphics.Color.White)
             }
         },
@@ -386,8 +385,8 @@ private fun SwipeRow(row: HistoryRow, onClick: () -> Unit, onDelete: () -> Unit)
             leadingContent = { IconBadge(row.icon) },
             trailingContent = { Icon(Icons.Rounded.MoreVert, "更多操作（左滑删除）", tint = MaterialTheme.colorScheme.outline) },
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            modifier = Modifier.clip(RoundedCornerShape(18.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)).clickable(onClick = onClick),
+            modifier = Modifier.clip(MaterialTheme.shapes.large)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large).clickable(onClick = onClick),
         )
     }
 }

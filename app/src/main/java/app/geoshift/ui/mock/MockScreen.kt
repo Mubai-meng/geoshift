@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -156,7 +155,7 @@ fun MockScreen(
         if (issues.isNotEmpty()) {
             Spacer(Modifier.size(12.dp))
             Row(
-                Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(MaterialTheme.shapes.large)
                     .background(Warning.copy(alpha = 0.12f)).clickable(onClick = onOpenSetup).padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -233,7 +232,7 @@ fun MockScreen(
             if (s.runtime.enabled && s.runtime.speed >= 2.3) {
                 Spacer(Modifier.size(12.dp))
                 Row(
-                    Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(MaterialTheme.shapes.large)
                         .background(Warning.copy(alpha = 0.12f)).padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

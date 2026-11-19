@@ -337,7 +337,7 @@ fun MapScreen(
         Column(Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
             AnimatedContent(editing, label = "top") { isEditing ->
                 if (isEditing) {
-                    Surface(shape = CircleShape, color = palette.blue, shadowElevation = 8.dp) {
+                    Surface(shape = CircleShape, color = palette.blue, shadowElevation = 4.dp) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Route, null, tint = MaterialTheme.colorScheme.onPrimary)
                             Spacer(Modifier.width(12.dp))
@@ -354,7 +354,7 @@ fun MapScreen(
                 }
             }
             AnimatedVisibility(query.isEmpty() && results.isEmpty() && searchHistory.isNotEmpty() && !editing) {
-                Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp), elevation = 6.dp)) {
+                Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(CircleShape)) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -399,7 +399,7 @@ fun MapScreen(
                 )
             }
             AnimatedVisibility(results.isNotEmpty() && !editing) {
-                Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(RoundedCornerShape(26.dp))) {
+                Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(MaterialTheme.shapes.large)) {
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         items(results) { place ->
                             Row(Modifier.fillMaxWidth().clickable {
@@ -619,7 +619,7 @@ fun MapScreen(
 @Composable
 private fun MapTip(onSwitch: () -> Unit, onKey: () -> Unit, onClose: () -> Unit) {
     val link = MaterialTheme.typography.labelMedium
-    Box(Modifier.padding(top = 8.dp).glass(CircleShape, elevation = 6.dp)) {
+    Box(Modifier.padding(top = 8.dp).glass(CircleShape)) {
         Row(Modifier.padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("地图不显示？", style = link, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("换个图层", style = link, color = MaterialTheme.colorScheme.primary,
@@ -655,10 +655,10 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, onSearch: () -> 
     }
 }
 
-/** Rounded floating group holding one or more map tools. */
+/** Pill-shaped floating group holding one or more map tools. */
 @Composable
 private fun ToolGroup(content: @Composable () -> Unit) {
-    Column(Modifier.glass(RoundedCornerShape(24.dp)).padding(vertical = 2.dp)) { content() }
+    Column(Modifier.glass(CircleShape).padding(vertical = 2.dp)) { content() }
 }
 
 @Composable
@@ -831,7 +831,7 @@ private fun MapCompass(
 
 @Composable
 private fun BottomCard(content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().animateContentSize().glass(RoundedCornerShape(32.dp), elevation = 18.dp).padding(20.dp)) { content() }
+    Column(Modifier.fillMaxWidth().animateContentSize().glass(MaterialTheme.shapes.extraLarge, elevation = 8.dp).padding(20.dp)) { content() }
 }
 
 /** Idle / running panel: state and position on the left, one round start-stop button on the right. */
@@ -932,7 +932,7 @@ private fun StatusCard(s: AppState, address: String, onToggle: () -> Unit, onPau
         }
         if (!ready) {
             Spacer(Modifier.size(12.dp))
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer)
+            Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.primaryContainer)
                 .clickable(onClick = onOpenSetup).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("还有权限或模块未配置", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.weight(1f))
@@ -968,7 +968,7 @@ private fun PreviewCard(
         Button(
             onClick = if (running) onSetVirtual else onStart,
             modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.large,
         ) {
             Icon(if (running) Icons.Rounded.NearMe else Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
@@ -989,7 +989,7 @@ private fun ActionTile(icon: ImageVector, label: String, modifier: Modifier, onC
     Surface(
         onClick = onClick,
         modifier = modifier.heightIn(min = 60.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {

@@ -18,9 +18,10 @@ import androidx.compose.ui.unit.sp
 import app.geoshift.data.ThemeMode
 
 /*
- * Fresh & Energetic (轻氧活力风) design theme:
- * Clean, translucent glass surfaces, energetic pastel accents (mint green, periwinkle, coral pink, sunshine gold),
- * rounded cards with subtle depth, and vibrant status gradients.
+ * Geoshift design theme — see DESIGN.md at the repo root.
+ * Colours: periwinkle brand + mint "simulating" green (matches the launcher icon).
+ * Structure (after Uber's map-first system): pill-shaped controls, flat hairline cards,
+ * solid floating surfaces with a short shadow only for things that sit on the map.
  */
 
 /** Tint colours (Fresh & Energetic palette, light / dark variants picked by [Palette]). */
@@ -31,7 +32,7 @@ class Palette(
     val separator: Color,
     /** Fill behind controls (segmented control track, search field). */
     val fill: Color,
-    /** Glass surfaces floating over content (tab bar, map controls). */
+    /** Solid surfaces floating over the map (search bar, tool groups, bottom cards) and their hairline rim. */
     val glass: Color,
     val glassEdge: Color,
     val dark: Boolean,
@@ -42,7 +43,7 @@ private val LightPalette = Palette(
     yellow = Color(0xFFFFD166), teal = Color(0xFF06D6A0), indigo = Color(0xFF6C5CE7), purple = Color(0xFFA29BFE),
     pink = Color(0xFFFF6584), gray = Color(0xFF8C8CA1),
     separator = Color(0x1F5B67EA), fill = Color(0x126C5CE7),
-    glass = Color(0xF2F8F9FE), glassEdge = Color(0xD9FFFFFF), dark = false,
+    glass = Color(0xFFFFFFFF), glassEdge = Color(0x141E1F29), dark = false,
 )
 
 private val DarkPalette = Palette(
@@ -50,7 +51,7 @@ private val DarkPalette = Palette(
     yellow = Color(0xFFFFE066), teal = Color(0xFF38D9A9), indigo = Color(0xFF9775FA), purple = Color(0xFFB197FC),
     pink = Color(0xFFFF8787), gray = Color(0xFFA6A7B5),
     separator = Color(0x33A29BFE), fill = Color(0x2E7C88FF),
-    glass = Color(0xE61B192A), glassEdge = Color(0x33A29BFE), dark = true,
+    glass = Color(0xFF232136), glassEdge = Color(0x1AFFFFFF), dark = true,
 )
 
 val LocalPalette = staticCompositionLocalOf { LightPalette }
@@ -122,13 +123,13 @@ private val Dark = darkColorScheme(
     error = DarkPalette.red,
 )
 
-/** iOS 26 rounds everything generously: cards ~26, sheets ~34. */
+/** Interactive elements are pills (CircleShape); cards 16, bottom sheets 28 (DESIGN.md §3). */
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(26.dp),
-    extraLarge = RoundedCornerShape(34.dp),
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 /** iOS text styles: Large Title 34, Title 28/22/20, Headline 17 semibold, Body 17, Subhead 15, Footnote 13, Caption 12. */

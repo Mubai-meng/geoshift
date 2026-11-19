@@ -183,15 +183,15 @@ fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifie
 }
 
 /**
- * Liquid-glass surface for controls floating over content (tab bar, map buttons): translucent fill,
- * a light rim and a soft shadow.
+ * Solid floating surface for controls sitting on the map (DESIGN.md §4, Level 1): opaque fill,
+ * a hairline rim and a short shadow. Page cards stay flat and never use this.
  */
-fun Modifier.glass(shape: Shape, fill: Color, edge: Color, elevation: Dp = 10.dp): Modifier =
-    this.shadow(elevation, shape, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
+fun Modifier.glass(shape: Shape, fill: Color, edge: Color, elevation: Dp = 4.dp): Modifier =
+    this.shadow(elevation, shape, ambientColor = Color.Black.copy(alpha = 0.16f), spotColor = Color.Black.copy(alpha = 0.16f))
         .clip(shape).background(fill).border(0.6.dp, edge, shape)
 
 @Composable
-fun Modifier.glass(shape: Shape = CircleShape, elevation: Dp = 10.dp): Modifier {
+fun Modifier.glass(shape: Shape = CircleShape, elevation: Dp = 4.dp): Modifier {
     val p = palette
     return glass(shape, p.glass, p.glassEdge, elevation)
 }
