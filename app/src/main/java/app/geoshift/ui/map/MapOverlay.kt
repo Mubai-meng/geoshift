@@ -79,6 +79,8 @@ internal fun MapTip(onSwitch: () -> Unit, onKey: () -> Unit, onClose: () -> Unit
 internal fun SearchBar(
     query: String,
     searching: Boolean,
+    placeholder: String = "搜索地点、地址或坐标",
+    routeMode: Boolean = false,
     onQuery: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
@@ -87,8 +89,13 @@ internal fun SearchBar(
         TextField(
             value = query,
             onValueChange = onQuery,
-            placeholder = { Text("搜索地点、地址或坐标", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+            leadingIcon = {
+                Icon(
+                    Icons.Rounded.Search, null,
+                    tint = if (routeMode) palette.blue else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
             trailingIcon = {
                 when {
                     searching -> CircularProgressIndicator(

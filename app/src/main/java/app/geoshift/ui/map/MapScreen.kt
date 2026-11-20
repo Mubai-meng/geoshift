@@ -48,7 +48,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -178,10 +177,8 @@ fun MapScreen(
             vm.run<List<Place>>(onDone = {
                 if (searchGeneration == generation) {
                     searching = false
-                    if (!editing) {
-                        results = it
-                        if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
-                    }
+                    results = it
+                    if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
                 }
             }) {
                 try {
@@ -290,28 +287,18 @@ fun MapScreen(
             onLongPress = { p -> if (!editing) select(p) },
         )
 
-        // ---- Top: search bar / route banner ----
+        // ---- Top: search bar (also adds waypoints while editing a route) ----
         Column(Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
-            AnimatedContent(editing, label = "top") { isEditing ->
-                if (isEditing) {
-                    Surface(shape = CircleShape, color = palette.blue, shadowElevation = 4.dp) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Route, null, tint = MaterialTheme.colorScheme.onPrimary)
-                            Spacer(Modifier.width(12.dp))
-                            Text("路线编辑 · 点击地图依次添加点位", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                } else {
-                    SearchBar(
-                        query = query,
-                        searching = searching,
-                        onQuery = { query = it; searchGeneration++; searching = false; results = emptyList() },
-                        onSearch = { doSearch(query) },
-                        onClear = { query = ""; searchGeneration++; searching = false; results = emptyList() },
-                    )
-                }
-            }
-            AnimatedVisibility(query.isEmpty() && results.isEmpty() && searchHistory.isNotEmpty() && !editing) {
+            SearchBar(
+                query = query,
+                searching = searching,
+                placeholder = if (editing) "搜索地点添加途经点，或直接点地图" else "搜索地点、地址或坐标",
+                routeMode = editing,
+                onQuery = { query = it; searchGeneration++; searching = false; results = emptyList() },
+                onSearch = { doSearch(query) },
+                onClear = { query = ""; searchGeneration++; searching = false; results = emptyList() },
+            )
+            AnimatedVisibility(query.isEmpty() && results.isEmpty() && searchHistory.isNotEmpty()) {
                 Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(CircleShape)) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -354,25 +341,40 @@ fun MapScreen(
                     onClose = { vm.run { store.updateSettings { it.copy(mapTipDismissed = true) } } },
                 )
             }
-            AnimatedVisibility(results.isNotEmpty() && !editing) {
+            AnimatedVisibility(results.isNotEmpty()) {
                 Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(MaterialTheme.shapes.large)) {
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         itemsIndexed(results, key = { i, place -> "${place.name}|${place.position.lat}|${place.position.lon}|$i" }) { index, place ->
                             Row(
                                 Modifier.fillMaxWidth().clickable {
-                                    select(place.position, presetAddress = place.address.ifEmpty { place.name })
-                                    onCenter(CenterRequest(place.position, 16.0))
+                                    if (editing) {
+                                        draft.add(place.position)
+                                        query = ""
+                                        searchGeneration++
+                                        searching = false
+                                        results = emptyList()
+                                        focus.clearFocus()
+                                        onCenter(CenterRequest(place.position, 16.0))
+                                        vm.toast("已添加第 ${draft.size} 个点：${place.name}")
+                                    } else {
+                                        select(place.position, presetAddress = place.address.ifEmpty { place.name })
+                                        onCenter(CenterRequest(place.position, 16.0))
+                                    }
                                 }.padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(12.dp))
-                                Column {
+                                Column(Modifier.weight(1f)) {
                                     Text(place.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (place.address.isNotEmpty()) Text(
                                         place.address, style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     )
+                                }
+                                if (editing) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Icon(Icons.Rounded.Add, "添加到路线", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                 }
                             }
                             if (index < results.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -445,7 +447,7 @@ fun MapScreen(
             }
             ToolGroup {
                 MapTool(Icons.Rounded.Route, "路线编辑", active = editing) {
-                    if (!editing) { draft.clear(); selected = null; searchGeneration++; searching = false; results = emptyList(); focus.clearFocus() }
+                    if (!editing) { draft.clear(); selected = null; query = ""; searchGeneration++; searching = false; results = emptyList(); focus.clearFocus() }
                     editing = !editing
                 }
                 ToolDivider()
