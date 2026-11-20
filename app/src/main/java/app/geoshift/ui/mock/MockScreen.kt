@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import app.geoshift.core.LatLon
 import app.geoshift.ui.AppState
 import app.geoshift.data.SpeedMode
+import app.geoshift.data.formatKmh
 import app.geoshift.ui.AppViewModel
 import app.geoshift.ui.components.Segmented
 import app.geoshift.ui.components.IosSwitch
@@ -336,7 +337,7 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
         if (on && r.routeMode && s.currentRoute.size >= 2) {
             val totalLength = s.currentRouteLength
             val remainingMetres = (totalLength * (1.0 - r.progress)).coerceAtLeast(0.0)
-            val currentSpeed = if (r.speed > 0.1) r.speed else (s.settings.speedMode.metresPerSecond * s.settings.speedMultiplier)
+            val currentSpeed = if (r.speed > 0.1) r.speed else s.settings.speed
             val remainingSec = if (currentSpeed > 0.05) (remainingMetres / currentSpeed).toLong() else 0L
             val etaStr = if (remainingSec > 3600) "${remainingSec / 3600}小时${(remainingSec % 3600) / 60}分"
                 else "${(remainingSec / 60).coerceAtLeast(1)}分钟"
@@ -409,10 +410,37 @@ private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
             TextButton(onClick = onPickRoute) { Text(if (hasRoute) "更换" else "选择") }
         }
         Spacer(Modifier.size(12.dp))
-        Segmented(SpeedMode.entries.map { it.label }, s.settings.speedMode.ordinal) { i ->
+        val st = s.settings
+        var editSpeed by remember { mutableStateOf(false) }
+        Segmented(SpeedMode.entries.map { it.label }, if (st.customSpeed) -1 else st.speedMode.ordinal) { i ->
             val mode = SpeedMode.entries[i]
-            if (s.settings.speedMode != mode) vm.run { updateSettings { it.copy(speedMode = mode) } }
+            if (st.speedMode != mode || st.customSpeed) vm.run { updateSettings { it.copy(speedMode = mode, customSpeedKmh = 0.0) } }
         }
+        Spacer(Modifier.size(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("速度", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text("${formatKmh(st.speed * 3.6)} km/h" + if (st.customSpeed) "（自定义）" else "",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { editSpeed = true }) { Text("设定") }
+        }
+        if (editSpeed) InputDialog(
+            title = "设定速度", initial = formatKmh(st.speed * 3.6), label = "km/h", number = true,
+            hint = "参考：步行 5、跑步 11、骑行 15–20、市区驾车 30–50、高速 100–120。留空或 0 恢复按模式。",
+            onDismiss = { editSpeed = false },
+        ) { text ->
+            val kmh = if (text.isEmpty()) 0.0 else text.replace("，", ".").toDoubleOrNull()
+            if (kmh == null || kmh < 0 || kmh > 3600) vm.toast("请输入 0–3,600 之间的数字")
+            else vm.run { updateSettings { it.copy(customSpeedKmh = kmh) } }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("路口与红绿灯", style = MaterialTheme.typography.bodyMedium)
+                Text("路口随机减速，部分遇红灯停 10–60 秒", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IosSwitch(st.trafficLights, { on -> vm.run { updateSettings { it.copy(trafficLights = on) } } })
+        }
+        Spacer(Modifier.size(8.dp))
         Spacer(Modifier.size(8.dp))
         Text("走到终点后", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.size(4.dp))
@@ -422,8 +450,8 @@ private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
             if (r.repeat != key) vm.run { setRepeat(key) }
         }
         Spacer(Modifier.size(6.dp))
-        Text(String.format(Locale.ROOT, "约 %.1f km/h（倍率 ×%s），速度自然波动 ±20%%，起步、转弯和到站时减速",
-            s.settings.speedMode.metresPerSecond * s.settings.speedMultiplier * 3.6, formatNumber(s.settings.speedMultiplier)),
+        Text((if (st.customSpeed) "" else "倍率 ×${formatNumber(st.speedMultiplier)}，") +
+            "速度自然波动 ±20%，起步、转弯和到站时减速" + if (st.trafficLights && st.speed <= 40) "，路口随机减速或停车等灯" else "",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!routeRunning) {
             Spacer(Modifier.size(12.dp))

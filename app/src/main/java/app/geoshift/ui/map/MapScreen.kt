@@ -529,6 +529,7 @@ fun MapScreen(
                     profile = profile,
                     roadStatus = when {
                         profile == RoadProfile.FLY -> "点与点之间直线飞行，按飞行速度播放"
+                        profile == RoadProfile.STRAIGHT -> "纯手选：点哪走哪，点与点之间直线连接，不调用道路服务"
                         !profile.road -> null
                         draft.size < 2 -> "点选途经点，路线会沿${router.source}道路连接"
                         roadBusy -> "正在沿道路规划…"
@@ -543,7 +544,7 @@ fun MapScreen(
                         when {
                             draft.size < 2 -> vm.toast("请至少选择两个路线点")
                             profile.road && roadBusy -> vm.toast("道路还在规划，请稍候")
-                            profile.road && roadPath == null -> vm.toast(roadError ?: "道路规划失败，可改用直线")
+                            profile.road && roadPath == null -> vm.toast(roadError ?: "道路规划失败，可改用手选")
                             else -> routeDialog = true
                         }
                     },

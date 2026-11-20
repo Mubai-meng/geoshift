@@ -277,8 +277,8 @@ class Geoshift private constructor(context: Context) {
         val route = store.routes.find(id)
         Validate.route(route.points)
         store.updateRuntime { it.copy(mode = SimMode.ROUTE, routeId = id, routeName = route.name, position = route.points.first(), progress = 0.0, routeIndex = 0) }
-        // A route drawn for driving plays at driving speed, and so on.
-        route.profile.speed?.let { speed ->
+        // A route drawn for driving plays at driving speed, and so on (unless the user set a speed).
+        route.profile.speed?.takeUnless { store.settings.value.customSpeed }?.let { speed ->
             if (store.settings.value.speedMode != speed) {
                 store.updateSettings { it.copy(speedMode = speed) }
                 store.log("按路线出行方式切换为${speed.label}速度（${speed.metresPerSecond} m/s）")
@@ -303,13 +303,16 @@ class Geoshift private constructor(context: Context) {
         val s = store.settings.value
         val now = SystemClock.elapsedRealtime()
         store.updateRuntime { r ->
-            val anchor = if (r.routeMode) RouteAnchor(r.routeId, 0.0, now, s.speed, r.repeat) else null
+            val anchor = if (r.routeMode) RouteAnchor(r.routeId, 0.0, now, s.speed, r.repeat, trafficSeed(s)) else null
             val first = if (r.routeMode) plan(r.routeId)?.points?.firstOrNull() ?: r.position else r.position
             r.copy(enabled = true, paused = false, error = "", anchor = anchor, position = first, progress = 0.0,
                 routeIndex = 0, noiseSeed = SecureRandom().nextLong())
         }
         SimulationService.start(app)
     }
+
+    /** A new set of red lights for each start; null when traffic is off. */
+    private fun trafficSeed(s: Settings): Long? = if (s.trafficLights) SecureRandom().nextLong() else null
 
     fun stop() {
         store.updateRuntime { it.copy(enabled = false, paused = false, speed = 0.0, anchor = null) }
@@ -353,9 +356,10 @@ class Geoshift private constructor(context: Context) {
         val now = SystemClock.elapsedRealtime()
         val s = store.settings.value
         var a = anchor
-        if (kotlin.math.abs(a.speed - s.speed) > 1e-9) {
-            // Speed setting changed: continue from here at the new speed.
-            a = a.copy(distance = plan.distanceAt(a, false, now), at = now, speed = s.speed)
+        if (kotlin.math.abs(a.speed - s.speed) > 1e-9 || (a.traffic != null) != s.trafficLights) {
+            // Speed or traffic setting changed: continue from here with the new setting.
+            a = a.copy(distance = plan.distanceAt(a, false, now), at = now, speed = s.speed,
+                traffic = if (s.trafficLights) a.traffic ?: SecureRandom().nextLong() else null)
         }
         val p = plan.live(a, false, now)
         if (p.finished) {
@@ -540,6 +544,7 @@ class Geoshift private constructor(context: Context) {
         val next = change(old)
         Validate.inRange(next.interval.toDouble(), 100.0, 60000.0, "上报间隔应为 100–60,000 毫秒。")
         Validate.inRange(next.speedMultiplier, 0.01, 1000.0, "速度倍率应为 0.01–1000。")
+        Validate.inRange(next.customSpeedKmh, 0.0, 3600.0, "速度应为 0–3,600 km/h。")
         Validate.inRange(next.accuracy, 0.0, 1_000_000.0, "精度范围为 0–1,000,000 米。")
         Validate.inRange(next.altitude, -12000.0, 100000.0, "海拔范围为 -12,000–100,000 米。")
         Validate.packages(next.packages)

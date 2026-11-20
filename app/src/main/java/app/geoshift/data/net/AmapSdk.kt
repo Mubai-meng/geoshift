@@ -102,7 +102,7 @@ class AmapSdk(context: Context, private val key: () -> String) {
                 ?.paths?.firstOrNull()?.steps.orEmpty().map { it.polyline.orEmpty() }
         }
         val out = lines.flatten().map { it.wgs() }.filter { it.valid }
-        if (out.size < 2) throw AmapError("3002", "高德没有找到这两点之间的道路，可改用直线连接。")
+        if (out.size < 2) throw AmapError("3002", "高德没有找到这两点之间的道路，可改用「手选」逐点连接。")
         out
     }
 

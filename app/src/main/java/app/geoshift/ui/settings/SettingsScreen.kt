@@ -171,7 +171,7 @@ fun SettingsScreen(
 
         SectionTitle("定位参数")
         SettingGroup {
-            SettingRow("移动模式", "路线与摇杆的基础速度", icon = Icons.AutoMirrored.Rounded.DirectionsWalk, value = st.speedMode.label, onClick = { choice = "speedMode" })
+            SettingRow("移动模式", "路线与摇杆的基础速度", icon = Icons.AutoMirrored.Rounded.DirectionsWalk, value = st.speedLabel, onClick = { choice = "speedMode" })
             RowDivider()
             SettingRow("速度倍率", null, icon = Icons.Rounded.Speed, value = "×${formatNumber(st.speedMultiplier)}",
                 onClick = { number = NUMBER_SETTINGS["speedMultiplier"] })
@@ -292,7 +292,7 @@ fun SettingsScreen(
         "backend" -> ChoiceDialog("模拟类型", listOf(Backend.MOCK.name to "标准 Android 模拟位置", Backend.XPOSED.name to "Xposed 系统定位（libxposed API 101+）"), st.backend.name,
             onDismiss = { choice = null }) { v -> set("已切换模拟类型") { it.copy(backend = Backend.valueOf(v)) } }
         "speedMode" -> ChoiceDialog("移动模式", SpeedMode.entries.map { it.name to "${it.label} · ${it.metresPerSecond} m/s" }, st.speedMode.name,
-            onDismiss = { choice = null }) { v -> set { it.copy(speedMode = SpeedMode.valueOf(v)) } }
+            onDismiss = { choice = null }) { v -> set { it.copy(speedMode = SpeedMode.valueOf(v), customSpeedKmh = 0.0) } }
         "theme" -> ChoiceDialog("外观", ThemeMode.entries.map { it.name to it.label }, st.theme.name,
             onDismiss = { choice = null }) { v -> set(null) { it.copy(theme = ThemeMode.valueOf(v)) } }
     }

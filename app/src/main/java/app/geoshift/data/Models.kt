@@ -29,7 +29,8 @@ enum class SpeedMode(val label: String, val metresPerSecond: Double) {
 
 /** How a route section between two tapped points is drawn. [road]: snapped to real roads. */
 enum class RoadProfile(val label: String, val road: Boolean, val osrm: String) {
-    STRAIGHT("直线", false, ""),
+    /** Pure hand-picked path: the tapped points joined by straight lines, no road service. */
+    STRAIGHT("手选", false, ""),
     FOOT("步行", true, "foot"),
     BIKE("骑行", true, "bike"),
     CAR("驾车", true, "car"),
@@ -52,6 +53,10 @@ data class Settings(
     val interval: Int = 1000,
     val speedMode: SpeedMode = SpeedMode.WALK,
     val speedMultiplier: Double = 1.0,
+    /** User-set ground speed in km/h; 0 = use [speedMode] × [speedMultiplier]. */
+    val customSpeedKmh: Double = 0.0,
+    /** Routes: intersections slow down at random and some stop for a red light. */
+    val trafficLights: Boolean = true,
     val accuracy: Double = 5.0,
     val altitude: Double = 0.0,
     val jitter: Boolean = false,
@@ -74,8 +79,11 @@ data class Settings(
     val searchHistory: List<String> = emptyList(),
 ) {
     val xposed get() = backend == Backend.XPOSED
-    /** Ground speed for the movement mode and multiplier, m/s. */
-    val speed get() = speedMode.metresPerSecond * speedMultiplier.coerceIn(0.01, 1000.0)
+    /** Ground speed: the custom speed when set, otherwise the movement mode and multiplier, m/s. */
+    val speed get() = if (customSpeedKmh > 0) customSpeedKmh / 3.6 else speedMode.metresPerSecond * speedMultiplier.coerceIn(0.01, 1000.0)
+    val customSpeed get() = customSpeedKmh > 0
+    /** Short label for the current speed: the mode, or "32 km/h" when custom. */
+    val speedLabel get() = if (customSpeed) "${formatKmh(customSpeedKmh)} km/h" else speedMode.label
 }
 
 enum class SimMode { POINT, ROUTE }
@@ -249,3 +257,8 @@ data class Place(val name: String, val address: String, val position: LatLon)
 
 /** A row of a real Wi-Fi or cell scan, for pickers. */
 data class ScanRow<T>(val title: String, val subtitle: String, val value: T)
+
+/** "32" or "4.5": km/h without trailing zeros. */
+fun formatKmh(kmh: Double): String =
+    if (kotlin.math.abs(kmh - kotlin.math.round(kmh)) < 0.05) kotlin.math.round(kmh).toLong().toString()
+    else String.format(java.util.Locale.ROOT, "%.1f", kmh)

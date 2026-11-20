@@ -79,6 +79,11 @@ data class RouteAnchor(
     val at: Long = 0,
     val speed: Double = 0.0,
     val repeat: Repeat = Repeat.ONCE,
+    /**
+     * Traffic: intersections slow down at random and some stop for a red light. The seed picks which;
+     * null = off. App and hooks derive the same lights from it.
+     */
+    val traffic: Long? = null,
 )
 
 @Serializable

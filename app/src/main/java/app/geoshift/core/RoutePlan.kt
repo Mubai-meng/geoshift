@@ -16,6 +16,9 @@ import kotlin.math.min
  * the position: it eases in after the start, slows for corners and eases out before the end. Both
  * stay exact by moving in "effort" units: effort(x) = ∫ 1/pace from the start, so effort advances by
  * exactly [travelled] and is mapped back to a distance through a per-route, per-speed table.
+ *
+ * With traffic on ([RouteAnchor.traffic]), intersections slow down at random and some stop for a red
+ * light: the stop is a step in effort at that point, during which the distance stays put.
  */
 class RoutePlan(val id: String, val points: List<LatLon>) {
     val open = Track(points, closed = false)
@@ -32,17 +35,27 @@ class RoutePlan(val id: String, val points: List<LatLon>) {
 
     /** Distance played (unrolled) at [nowMs] from an anchor; [paused] freezes it. */
     fun distanceAt(anchor: RouteAnchor, paused: Boolean, nowMs: Long): Double {
-        if (paused) return anchor.distance
-        val effort = travelled(anchor.speed, anchor.at, nowMs)
-        if (effort <= 0) return anchor.distance
-        return distanceOf(anchor.repeat, anchor.speed, effortOf(anchor.repeat, anchor.speed, anchor.distance) + effort)
+        val e = effortAt(anchor, paused, nowMs) ?: return anchor.distance
+        return distanceOf(anchor.repeat, anchor.speed, e, anchor.traffic)
     }
 
-    fun effortOf(repeat: Repeat, v: Double, d: Double): Double {
+    /** Effort reached at [nowMs], or null when the anchor has not moved. */
+    private fun effortAt(anchor: RouteAnchor, paused: Boolean, nowMs: Long): Double? {
+        if (paused) return null
+        val effort = travelled(anchor.speed, anchor.at, nowMs)
+        if (effort <= 0) return null
+        return effortOf(anchor.repeat, anchor.speed, anchor.distance, anchor.traffic) + effort
+    }
+
+    /**
+     * Effort to play [d] metres. Exactly at a red light it counts the wait as done, so a route anchored
+     * there (pause, speed change) moves on instead of waiting again.
+     */
+    fun effortOf(repeat: Repeat, v: Double, d: Double, traffic: Long? = null): Double {
         val t = track(repeat)
         val length = t.length
         if (length < 0.01) return max(0.0, d)
-        val p = t.pace(v)
+        val p = t.pace(v, traffic)
         if (d <= 0) return d
         if (repeat == Repeat.ONCE) return if (d >= length) p.total + (d - length) else p.effort(d)
         val lap = floor(d / length).toLong()
@@ -52,17 +65,30 @@ class RoutePlan(val id: String, val points: List<LatLon>) {
         return base + p.total - p.effort(length - w) // Coming back: the route read backwards.
     }
 
-    fun distanceOf(repeat: Repeat, v: Double, e: Double): Double {
+    fun distanceOf(repeat: Repeat, v: Double, e: Double, traffic: Long? = null): Double {
         val t = track(repeat)
         val length = t.length
         if (length < 0.01) return max(0.0, e)
-        val p = t.pace(v)
+        val p = t.pace(v, traffic)
         if (e <= 0) return e
         if (repeat == Repeat.ONCE) return if (e >= p.total) length + (e - p.total) else p.distance(e)
         val lap = floor(e / p.total).toLong()
         val rest = e - lap * p.total
         if (repeat == Repeat.LOOP || (lap and 1L) == 0L) return lap * length + p.distance(rest)
         return lap * length + length - p.distance(p.total - rest)
+    }
+
+    /** Whether effort [e] falls inside a red-light wait. */
+    fun waitingAt(repeat: Repeat, v: Double, e: Double, traffic: Long?): Boolean {
+        if (traffic == null || e <= 0) return false
+        val t = track(repeat)
+        if (t.length < 0.01) return false
+        val p = t.pace(v, traffic)
+        if (p.total <= 0) return false
+        if (repeat == Repeat.ONCE) return e < p.total && p.waiting(e)
+        val lap = floor(e / p.total).toLong()
+        val rest = e - lap * p.total
+        return if (repeat == Repeat.LOOP || (lap and 1L) == 0L) p.waiting(rest) else p.waiting(p.total - rest)
     }
 
     data class Position(
@@ -82,7 +108,7 @@ class RoutePlan(val id: String, val points: List<LatLon>) {
     )
 
     /** Position after playing [distance] metres (unrolled) at base speed [v]. */
-    fun at(repeat: Repeat, v: Double, distance: Double): Position {
+    fun at(repeat: Repeat, v: Double, distance: Double, traffic: Long? = null): Position {
         val t = track(repeat)
         val length = t.length
         val d = max(0.0, distance)
@@ -104,13 +130,18 @@ class RoutePlan(val id: String, val points: List<LatLon>) {
         }
         val p = t.point(x)
         val bearing = if (reversed) Geo.normalizeBearing(p.bearing + 180) else p.bearing
-        val pace = if (v > 0) t.pace(v).at(x) else 1.0
+        val pace = if (v > 0) t.pace(v, traffic).at(x) else 1.0
         return Position(p.at, bearing, d, if (length <= 0) 1.0 else x / length, p.index, false, x, reversed, pace)
     }
 
     /** Position for a running config at [nowMs]. */
-    fun live(anchor: RouteAnchor, paused: Boolean, nowMs: Long) =
-        at(anchor.repeat, anchor.speed, distanceAt(anchor, paused, nowMs))
+    fun live(anchor: RouteAnchor, paused: Boolean, nowMs: Long): Position {
+        val e = effortAt(anchor, paused, nowMs)
+        val d = if (e == null) anchor.distance else distanceOf(anchor.repeat, anchor.speed, e, anchor.traffic)
+        val p = at(anchor.repeat, anchor.speed, d, anchor.traffic)
+        // Standing at a red light: no speed, and the heading stays as it was.
+        return if (e != null && !p.finished && waitingAt(anchor.repeat, anchor.speed, e, anchor.traffic)) p.copy(pace = 0.0) else p
+    }
 
     /** Ground speed at [nowMs] for a running anchor. */
     fun speedAt(anchor: RouteAnchor, paused: Boolean, nowMs: Long): Double {
@@ -127,7 +158,7 @@ class RoutePlan(val id: String, val points: List<LatLon>) {
      * position does not jump.
      */
     fun reanchor(anchor: RouteAnchor, paused: Boolean, nowMs: Long, next: Repeat): Double {
-        val p = at(anchor.repeat, anchor.speed, distanceAt(anchor, paused, nowMs))
+        val p = at(anchor.repeat, anchor.speed, distanceAt(anchor, paused, nowMs), anchor.traffic)
         val x = min(p.along, total) // The closing section of a loop is not part of the open route.
         return if (next == Repeat.BOUNCE && p.reversed) 2 * total - x else x
     }
@@ -246,7 +277,7 @@ class Track(src: List<LatLon>, closed: Boolean) {
     }
 
     /** Turn at vertex k in degrees (0 = straight on, 180 = U-turn), measured over TURN_SPAN. */
-    private fun turn(k: Int): Double {
+    internal fun turn(k: Int): Double {
         val c = cumulative[k]
         val back = raw(if (closed) c - TURN_SPAN else max(0.0, c - TURN_SPAN))
         val fwd = raw(if (closed) c + TURN_SPAN else min(length, c + TURN_SPAN))
@@ -254,10 +285,10 @@ class Track(src: List<LatLon>, closed: Boolean) {
         return abs(Geo.turn(Geo.bearing(back, points[k]), Geo.bearing(points[k], fwd)))
     }
 
-    /** Speed profile for base speed v; cached for the last speed used. */
-    fun pace(v: Double): Pace {
-        cachedPace?.let { if (it.v == v) return it }
-        return Pace(this, v).also { cachedPace = it }
+    /** Speed profile for base speed v (and traffic seed); cached for the last one used. */
+    fun pace(v: Double, traffic: Long? = null): Pace {
+        cachedPace?.let { if (it.v == v && it.traffic == traffic) return it }
+        return Pace(this, v, traffic).also { cachedPace = it }
     }
 
     /** A slowdown: pace falls linearly to [min] at [at], over [before] metres before and [after] after. */
@@ -273,11 +304,15 @@ class Track(src: List<LatLon>, closed: Boolean) {
      * Piecewise-linear pace over the track and its effort integral. Pace is evaluated at every dip
      * break point and taken as linear between them, so effort and its inverse are closed-form.
      */
-    class Pace internal constructor(t: Track, val v: Double) {
+    class Pace internal constructor(t: Track, val v: Double, val traffic: Long? = null) {
         private val x: DoubleArray
         private val g: DoubleArray
-        private val e: DoubleArray
+        /** Effort on arriving at each knot, and on leaving it (after any red-light wait there). */
+        private val arrive: DoubleArray
+        private val leave: DoubleArray
         val total: Double
+        /** Red lights on this track: position (m) and wait (s). */
+        val stops: List<Pair<Double, Double>>
 
         init {
             val length = t.length
@@ -306,6 +341,25 @@ class Track(src: List<LatLon>, closed: Boolean) {
                     if (t.closed && k == 0) dips.add(Dip(length, brake, brake, corner / v))
                 }
             }
+            val waits = ArrayList<Pair<Double, Double>>()
+            if (traffic != null && v in Traffic.MIN_SPEED..Traffic.MAX_SPEED && length > 2 * Traffic.END_CLEARANCE) {
+                for (light in Traffic.lights(t, traffic)) {
+                    val r = Traffic.random(traffic, light, 1)
+                    if (r < Traffic.RED_CHANCE) {
+                        // Red: brake to a standstill, wait, then pull away again.
+                        val brake = max(5.0, v * v / (2 * RoutePlan.ACCEL))
+                        dips.add(Dip(light, brake, brake, 0.0))
+                        waits.add(light to Traffic.MIN_WAIT + (Traffic.MAX_WAIT - Traffic.MIN_WAIT) * Traffic.random(traffic, light, 2))
+                    } else if (r < Traffic.RED_CHANCE + Traffic.SLOW_CHANCE) {
+                        // Green, but slowing for the crossing traffic, a turning car, pedestrians…
+                        val keep = 0.5 + 0.4 * Traffic.random(traffic, light, 3)
+                        val slow = v * keep
+                        val brake = max(3.0, (v * v - slow * slow) / (2 * RoutePlan.ACCEL))
+                        dips.add(Dip(light, brake, brake, keep))
+                    }
+                }
+            }
+            stops = waits
             val knots = ArrayList<Double>(2 + dips.size * 3)
             knots.add(0.0); knots.add(length)
             for (d in dips) {
@@ -332,9 +386,19 @@ class Track(src: List<LatLon>, closed: Boolean) {
                 }
                 g[i] = if (value > 1 - 1e-9) 1.0 else max(0.05, value)
             }
-            e = DoubleArray(x.size)
-            for (i in 1 until x.size) e[i] = e[i - 1] + pieceEffort(x[i] - x[i - 1], g[i - 1], g[i], x[i] - x[i - 1])
-            total = if (x.isEmpty()) 0.0 else e.last()
+            // A wait of w seconds is w × v of effort: effort advances at about v per second.
+            val hold = DoubleArray(x.size)
+            for ((at, w) in waits) {
+                val i = lowerBound(x, at - 1e-5)
+                if (i < x.size && abs(x[i] - at) < 1e-5) hold[i] += w * v
+            }
+            arrive = DoubleArray(x.size)
+            leave = DoubleArray(x.size)
+            for (i in x.indices) {
+                if (i > 0) arrive[i] = leave[i - 1] + pieceEffort(x[i] - x[i - 1], g[i - 1], g[i], x[i] - x[i - 1])
+                leave[i] = arrive[i] + hold[i]
+            }
+            total = if (x.isEmpty()) 0.0 else leave.last()
         }
 
         private fun lowerBound(a: DoubleArray, key: Double): Int {
@@ -366,13 +430,13 @@ class Track(src: List<LatLon>, closed: Boolean) {
             return g[i] + (g[i + 1] - g[i]) * f
         }
 
-        /** Effort from the start to [pos] metres. */
+        /** Effort from the start to [pos] metres (past any wait exactly at [pos]). */
         fun effort(pos: Double): Double {
             if (x.size < 2) return pos
             if (pos <= 0) return 0.0
             if (pos >= x.last()) return total
             val i = piece(x, pos)
-            return e[i] + pieceEffort(pos - x[i], g[i], g[i + 1], x[i + 1] - x[i])
+            return leave[i] + pieceEffort(pos - x[i], g[i], g[i + 1], x[i + 1] - x[i])
         }
 
         /** Metres from the start after [effort]. */
@@ -380,8 +444,27 @@ class Track(src: List<LatLon>, closed: Boolean) {
             if (x.size < 2) return effort
             if (effort <= 0) return 0.0
             if (effort >= total) return x.last()
-            val i = piece(e, effort)
-            return x[i] + pieceDistance(effort - e[i], g[i], g[i + 1], x[i + 1] - x[i])
+            val i = lastAtMost(arrive, effort)
+            if (effort < leave[i] || i >= x.size - 1) return x[i] // Waiting at a red light.
+            return x[i] + pieceDistance(effort - leave[i], g[i], g[i + 1], x[i + 1] - x[i])
+        }
+
+        /** Whether [effort] falls inside a red-light wait. */
+        fun waiting(effort: Double): Boolean {
+            if (stops.isEmpty() || x.size < 2 || effort <= 0 || effort >= total) return false
+            val i = lastAtMost(arrive, effort)
+            return effort < leave[i]
+        }
+
+        /** Largest index whose value is ≤ [value] (0 if none). */
+        private fun lastAtMost(a: DoubleArray, value: Double): Int {
+            var lo = 0
+            var hi = a.size - 1
+            while (lo < hi) {
+                val mid = (lo + hi + 1) ushr 1
+                if (a[mid] <= value) lo = mid else hi = mid - 1
+            }
+            return lo
         }
 
         private companion object {
@@ -407,5 +490,63 @@ class Track(src: List<LatLon>, closed: Boolean) {
         const val TURN_BLEND = 8.0
         /** Turning is measured between the directions this far before and after a vertex. */
         const val TURN_SPAN = 15.0
+    }
+}
+
+/**
+ * Where a route meets intersections with traffic lights, chosen from a seed so every process agrees.
+ * Corners of at least [CORNER] degrees count as intersections; long stretches without a corner get
+ * one every few hundred metres, as city blocks do.
+ */
+internal object Traffic {
+    /** Traffic applies between a slow walk and fast driving; not to flying. */
+    const val MIN_SPEED = 0.3
+    const val MAX_SPEED = 40.0
+    const val RED_CHANCE = 0.35
+    const val SLOW_CHANCE = 0.4
+    const val MIN_WAIT = 10.0
+    const val MAX_WAIT = 60.0
+    /** No light this close to the start or end of an open route. */
+    const val END_CLEARANCE = 40.0
+    private const val CORNER = 30.0
+    /** Corners closer than this make one intersection. */
+    private const val MERGE = 50.0
+    private const val MIN_BLOCK = 250.0
+    private const val MAX_BLOCK = 750.0
+
+    fun lights(t: Track, seed: Long): List<Double> {
+        val length = t.length
+        val lo = if (t.closed) 1.0 else END_CLEARANCE
+        val hi = length - lo
+        val corners = ArrayList<Double>()
+        for (k in 1 until t.points.size - 1) {
+            val c = t.cumulative[k]
+            if (c < lo || c > hi) continue
+            if (corners.isNotEmpty() && c - corners.last() < MERGE) continue
+            if (t.turn(k) >= CORNER) corners.add(c)
+        }
+        val out = ArrayList<Double>()
+        var last = if (t.closed) 0.0 else lo - MIN_BLOCK / 2
+        var n = 0L
+        for (next in corners + hi) {
+            while (true) {
+                val gap = MIN_BLOCK + (MAX_BLOCK - MIN_BLOCK) * random(seed, n.toDouble(), 7)
+                if (next - last < gap + MERGE) break
+                last += gap
+                n++
+                out.add(last)
+            }
+            if (next < hi) { out.add(next); last = next }
+        }
+        return out
+    }
+
+    /** Uniform in [0, 1) from the seed, a position on the route and a purpose. */
+    fun random(seed: Long, at: Double, salt: Int): Double {
+        var z = seed + kotlin.math.round(at * 10).toLong() * -7046029254386353131L + salt * 0x632BE59BD9B4E019L
+        z = (z xor (z ushr 30)) * -4658895280553007687L
+        z = (z xor (z ushr 27)) * -7723592293110705685L
+        z = z xor (z ushr 31)
+        return (z ushr 11).toDouble() / (1L shl 53).toDouble()
     }
 }

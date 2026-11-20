@@ -141,7 +141,7 @@ class JoystickService : Service() {
         val modes = SpeedMode.entries
         val current = engine.store.settings.value.speedMode
         val next = modes[(current.ordinal + 1) % modes.size]
-        engine.store.updateSettings { it.copy(speedMode = next) }
+        engine.store.updateSettings { it.copy(speedMode = next, customSpeedKmh = 0.0) }
         stick?.invalidate()
     }
 
@@ -341,7 +341,7 @@ class JoystickService : Service() {
             c.drawLine(closeX + cd, closeY - cd, closeX - cd, closeY + cd, paint)
 
             // 7. Bottom speed mode badge (tap to cycle speed mode on the fly)
-            val speedLabel = engine.store.settings.value.speedMode.label
+            val speedLabel = engine.store.settings.value.speedLabel
             val badgeW = w * 0.34f
             val badgeH = h * 0.125f
             val badgeY = h * 0.89f

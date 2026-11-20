@@ -164,9 +164,9 @@ class RoadRouter(private val amap: AmapSdk) {
             profile.osrm, a.lon, a.lat, b.lon, b.lat)
         val json = runCatching { JSONObject(httpText(url, allowStatus = 400)) }.getOrElse { if (it is UserError) throw it else fail("道路服务返回了无法识别的内容。") }
         if (json.optString("code") != "Ok")
-            fail(if (json.optString("code") == "NoRoute") "这两点之间没有找到道路，可改用直线连接。" else "道路服务错误：${json.optString("message", json.optString("code"))}")
+            fail(if (json.optString("code") == "NoRoute") "这两点之间没有找到道路，可改用「手选」逐点连接。" else "道路服务错误：${json.optString("message", json.optString("code"))}")
         val coords = json.optJSONArray("routes")?.optJSONObject(0)?.optJSONObject("geometry")?.optJSONArray("coordinates")
-            ?: fail("这两点之间没有找到道路，可改用直线连接。")
+            ?: fail("这两点之间没有找到道路，可改用「手选」逐点连接。")
         return (0 until coords.length()).mapNotNull { i ->
             val c = coords.optJSONArray(i) ?: return@mapNotNull null
             LatLon(c.optDouble(1), c.optDouble(0)).takeIf { it.valid }
