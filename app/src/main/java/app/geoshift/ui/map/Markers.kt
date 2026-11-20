@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
@@ -14,6 +15,8 @@ private const val SIM_ACTIVE = 0xFF00B386.toInt()
 private const val SIM_IDLE = 0xFF6C5CE7.toInt()
 /** Real position: the blue every map app uses for "my location". */
 private const val REAL = 0xFF1A7CFF.toInt()
+/** Selected map pin colour. */
+private const val PIN = 0xFFE5484D.toInt()
 
 /**
  * Position markers with a name tag under the dot. The bitmap is padded so the dot sits exactly in
@@ -82,3 +85,27 @@ internal fun simMarker(context: Context, active: Boolean): BitmapDrawable =
 /** The phone's real position: smaller blue dot, outlined tag. */
 internal fun realMarker(context: Context): BitmapDrawable =
     labelledDot(context, "真实位置", REAL, filledTag = false, big = false)
+
+/** Teardrop pin for a tapped / searched point. */
+internal fun pinDrawable(context: Context): BitmapDrawable {
+    val d = context.resources.displayMetrics.density
+    val w = (34 * d).toInt()
+    val h = (44 * d).toInt()
+    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bitmap)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    val cx = w / 2f
+    val r = 15 * d
+    val path = Path().apply {
+        moveTo(cx, h.toFloat() - 1 * d)
+        cubicTo(cx - 4 * d, h - 10 * d, cx - r, r + 9 * d, cx - r, r + 2 * d)
+        arcTo(cx - r, 2 * d, cx + r, 2 * d + 2 * r, 180f, 180f, false)
+        cubicTo(cx + r, r + 9 * d, cx + 4 * d, h - 10 * d, cx, h.toFloat() - 1 * d)
+        close()
+    }
+    p.color = PIN
+    c.drawPath(path, p)
+    p.color = 0xFFFFFFFF.toInt()
+    c.drawCircle(cx, r + 2 * d, 5.5f * d, p)
+    return BitmapDrawable(context.resources, bitmap)
+}

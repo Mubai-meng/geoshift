@@ -13,8 +13,8 @@ android {
         applicationId = "app.geoshift"
         minSdk = 26
         targetSdk = 35
-        versionCode = 70
-        versionName = "3.5.0"
+        versionCode = 71
+        versionName = "3.5.1"
         // Native map code is per ABI. 64-bit ARM only (32-bit phones are no longer supported: it halves the map library);
         // build with -Pemulator to add x86_64 for the emulator.
         ndk {
@@ -67,7 +67,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("org.maplibre.gl:android-sdk:13.7.1")
     // Official AMap map + search SDK; only initialised after the user saves their own Android key.
     implementation("com.amap.api:3dmap-location-search:11.3.100_loc11.3.101_sea9.8.1")

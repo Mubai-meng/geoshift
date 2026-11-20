@@ -474,8 +474,7 @@ const val PRIVACY = """我们重视您的隐私。
 · 不包含广告或统计服务。
 · 未同意使用须知前不会加载在线地图，也不会启动模拟服务。"""
 
-const val LICENSES = """osmdroid — Apache License 2.0
-高德地图 SDK — 高德软件许可（https://lbs.amap.com/pages/terms/）
+const val LICENSES = """高德地图 SDK — 高德软件许可（https://lbs.amap.com/pages/terms/）
 MapLibre Native — BSD 2-Clause License
 矢量瓦片 © OpenFreeMap © OpenMapTiles
 地图数据 © OpenStreetMap contributors — ODbL

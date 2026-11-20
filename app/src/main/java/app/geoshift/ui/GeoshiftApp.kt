@@ -4,7 +4,7 @@ import android.app.Activity
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.ClipOp
@@ -228,26 +228,43 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
                 val nav = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val padding = PaddingValues(bottom = nav + TAB_BAR_HEIGHT + 16.dp)
                 Box(Modifier.fillMaxSize()) {
-                    AnimatedContent(
-                        modifier = Modifier.hazeSource(hazeState),
-                        targetState = tab,
-                        transitionSpec = {
-                            fadeIn(animationSpec = androidx.compose.animation.core.tween(180)) togetherWith
-                                fadeOut(animationSpec = androidx.compose.animation.core.tween(120))
-                        },
-                        label = "tabTransition",
-                    ) { currentTab ->
-                        when (currentTab) {
-                            Tab.MAP -> MapScreen(s, vm, padding, center, onCenter = { center = it }, onOpenSetup = openSetup,
-                                onOpenAmapKey = openAmapKey)
-                            Tab.HISTORY -> HistoryScreen(s, vm, padding, historyTab,
-                                onShowOnMap = { p -> center = CenterRequest(p, 16.0); tab = Tab.MAP },
-                                onGoMock = { tab = Tab.MOCK }, onExport = onExport)
-                            Tab.MOCK -> MockScreen(s, vm, padding, onOpenSetup = openSetup,
-                                onOpenWifi = { page = Page.WIFI }, onOpenCell = { page = Page.CELL },
-                                onPickRoute = { historyTab = 1; tab = Tab.HISTORY })
-                            Tab.SETTINGS -> SettingsScreen(s, vm, padding, onOpenSetup = openSetup, onExport = onExport, onImport = onImport,
-                                onOpenAmapKey = openAmapKey)
+                    // Keep MapScreen mounted so switching tabs never destroys/recreates the GL map;
+                    // non-map tabs sit on top in an opaque surface while the map pauses rendering.
+                    Box(Modifier.fillMaxSize().hazeSource(hazeState)) {
+                        MapScreen(
+                            s, vm, padding, center,
+                            onCenter = { center = it },
+                            onOpenSetup = openSetup,
+                            onOpenAmapKey = openAmapKey,
+                            visible = tab == Tab.MAP,
+                        )
+                        AnimatedContent(
+                            targetState = tab,
+                            transitionSpec = {
+                                fadeIn(animationSpec = androidx.compose.animation.core.tween(180)) togetherWith
+                                    fadeOut(animationSpec = androidx.compose.animation.core.tween(120))
+                            },
+                            label = "tabTransition",
+                        ) { currentTab ->
+                            if (currentTab != Tab.MAP) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                                when (currentTab) {
+                                    Tab.HISTORY -> HistoryScreen(
+                                        s, vm, padding, historyTab,
+                                        onShowOnMap = { p -> center = CenterRequest(p, 16.0); tab = Tab.MAP },
+                                        onGoMock = { tab = Tab.MOCK }, onExport = onExport,
+                                    )
+                                    Tab.MOCK -> MockScreen(
+                                        s, vm, padding, onOpenSetup = openSetup,
+                                        onOpenWifi = { page = Page.WIFI }, onOpenCell = { page = Page.CELL },
+                                        onPickRoute = { historyTab = 1; tab = Tab.HISTORY },
+                                    )
+                                    Tab.SETTINGS -> SettingsScreen(
+                                        s, vm, padding, onOpenSetup = openSetup, onExport = onExport, onImport = onImport,
+                                        onOpenAmapKey = openAmapKey,
+                                    )
+                                    Tab.MAP -> Unit
+                                }
+                            }
                         }
                     }
                     // Translucent status-bar strip so scrolled content never sits under the clock (the map stays full-bleed).
@@ -269,17 +286,20 @@ private val TAB_BAR_HEIGHT = 64.dp
  * Soft drop shadow drawn only outside the capsule. A regular shadow sits under the whole shape and
  * shows through translucent glass as a grey band.
  */
-private fun Modifier.capsuleShadow(radius: Dp, offsetY: Dp, color: Color): Modifier = drawBehind {
+private fun Modifier.capsuleShadow(radius: Dp, offsetY: Dp, color: Color): Modifier = drawWithCache {
     val corner = size.height / 2
     val outline = Path().apply { addRoundRect(RoundRect(0f, 0f, size.width, size.height, CornerRadius(corner))) }
-    clipPath(outline, ClipOp.Difference) {
-        drawIntoCanvas { canvas ->
-            val paint = Paint().asFrameworkPaint().apply {
-                isAntiAlias = true
-                this.color = color.toArgb()
-                setShadowLayer(radius.toPx(), 0f, offsetY.toPx(), color.toArgb())
+    val argb = color.toArgb()
+    val paint = Paint().asFrameworkPaint().apply {
+        isAntiAlias = true
+        this.color = argb
+        setShadowLayer(radius.toPx(), 0f, offsetY.toPx(), argb)
+    }
+    onDrawBehind {
+        clipPath(outline, ClipOp.Difference) {
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, corner, corner, paint)
             }
-            canvas.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, corner, corner, paint)
         }
     }
 }

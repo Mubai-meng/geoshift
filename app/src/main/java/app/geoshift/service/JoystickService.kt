@@ -47,6 +47,7 @@ class JoystickService : Service() {
     private var dx = 0f
     private var dy = 0f
     private var moving = false
+    private var stepping = false
     private var collapsed = false
 
     override fun onCreate() {
@@ -110,7 +111,27 @@ class JoystickService : Service() {
         val view = Stick(this)
         stick = view
         wm.addView(view, p)
-        handler.post(move)
+    }
+
+    private fun startStepping() {
+        if (!stepping) {
+            stepping = true
+            handler.removeCallbacks(move)
+            handler.post(move)
+        }
+    }
+
+    private fun stopStepping() {
+        dx = 0f
+        dy = 0f
+        if (stepping) {
+            stepping = false
+            handler.removeCallbacks(move)
+        }
+        if (moving) {
+            moving = false
+            runCatching { engine.joystickStep(0.0, 0.0, 0.0) }
+        }
     }
 
     private fun setCollapsed(target: Boolean) {
@@ -129,8 +150,7 @@ class JoystickService : Service() {
         p.width = newSize
         p.height = newSize
         collapsed = target
-        dx = 0f
-        dy = 0f
+        stopStepping()
         savedX = p.x
         savedY = p.y
         runCatching { wm.updateViewLayout(v, p) }
@@ -159,9 +179,9 @@ class JoystickService : Service() {
         runCatching { wm.updateViewLayout(v, p) }
     }
 
-    /** Moves the point by one step of travel in the joystick direction. */
+    /** Moves the point by one step of travel in the joystick direction (runs only while deflected). */
     private fun step() {
-        if (stick == null) return
+        if (stick == null || !stepping) return
         try {
             val length = hypot(dx, dy).toDouble()
             if (length > 0.1) {
@@ -177,7 +197,7 @@ class JoystickService : Service() {
         } catch (e: Exception) {
             engine.store.log("摇杆：${e.message}")
         }
-        handler.postDelayed(move, STEP_MS)
+        if (stepping) handler.postDelayed(move, STEP_MS)
     }
 
     override fun onDestroy() {
@@ -218,8 +238,7 @@ class JoystickService : Service() {
         private val longPressRunnable = Runnable {
             if (!collapsed && mode == MODE_STICK && maxMoveFromDown < touchSlop * 0.6f && hypot(dx, dy) < 0.14f) {
                 mode = MODE_DRAG_WINDOW
-                dx = 0f
-                dy = 0f
+                stopStepping()
                 vibrate(HapticFeedbackConstants.LONG_PRESS)
                 invalidate()
             }
@@ -445,6 +464,7 @@ class JoystickService : Service() {
                         else -> {
                             mode = MODE_STICK
                             updateStickDeflection(e.x, e.y, cx, cy, innerR)
+                            startStepping()
                             // Holding the center knob still without deflecting it enters window-drag mode
                             if (distCenter < innerR * 0.35f) {
                                 handler.postDelayed(longPressRunnable, LONG_PRESS_DRAG_MS)
@@ -507,8 +527,7 @@ class JoystickService : Service() {
                         }
                     }
                     mode = MODE_NONE
-                    dx = 0f
-                    dy = 0f
+                    stopStepping()
                 }
             }
             invalidate()

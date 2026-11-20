@@ -16,8 +16,6 @@ import androidx.activity.viewModels
 import app.geoshift.ui.GeoshiftApp
 import app.geoshift.ui.AppViewModel
 import app.geoshift.ui.setup.SystemTarget
-import org.osmdroid.config.Configuration
-import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
@@ -50,11 +48,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        Configuration.getInstance().apply {
-            userAgentValue = "Geoshift/${BuildConfig.VERSION_NAME} (Android; app.geoshift)"
-            osmdroidBasePath = File(cacheDir, "osmdroid")
-            osmdroidTileCache = File(cacheDir, "osmdroid/tiles")
-        }
         setContent {
             GeoshiftApp(
                 vm = vm,

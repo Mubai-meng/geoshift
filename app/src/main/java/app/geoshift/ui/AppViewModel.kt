@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Everything the screens show. */
 data class AppState(
@@ -83,6 +84,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages: SharedFlow<String> = _messages
 
+    private val busyCount = AtomicInteger(0)
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
@@ -95,15 +97,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         // Permissions and the module's state change outside the app; check them while it is open.
+        // Ping system_server at a gentler cadence than local permission checks to save Binder IPC.
         viewModelScope.launch(Dispatchers.IO) {
+            var tick = 0
             while (isActive) {
-                if (foreground) runCatching { engine.capabilities() }
-                delay(2000)
+                if (foreground) {
+                    runCatching { engine.capabilities(includePing = tick % 2 == 0) }
+                    tick++
+                }
+                delay(3000)
             }
         }
     }
 
-    fun refresh() { viewModelScope.launch(Dispatchers.IO) { runCatching { engine.capabilities() } } }
+    fun refresh() { viewModelScope.launch(Dispatchers.IO) { runCatching { engine.capabilities(includePing = true) } } }
 
     fun toast(message: String) { _messages.tryEmit(message) }
 
@@ -113,7 +120,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun <T> run(success: String? = null, onDone: ((T) -> Unit)? = null, block: Geoshift.() -> T) {
         viewModelScope.launch {
-            _busy.value = true
+            if (busyCount.incrementAndGet() > 0) _busy.value = true
             try {
                 val result = withContext(Dispatchers.IO) { engine.block() }
                 success?.let { _messages.emit(it) }
@@ -123,7 +130,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _messages.emit(message)
                 withContext(Dispatchers.IO) { store.log(message) }
             } finally {
-                _busy.value = false
+                if (busyCount.decrementAndGet() <= 0) _busy.value = false
                 refresh()
             }
         }

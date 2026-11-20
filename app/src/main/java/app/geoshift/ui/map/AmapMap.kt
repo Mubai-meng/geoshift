@@ -60,6 +60,7 @@ fun AmapMap(
     camera: MapCamera,
     center: CenterRequest?,
     logoBottomMargin: Int,
+    visible: Boolean = true,
     onBearingChanged: (Double) -> Unit,
     onTap: (LatLon) -> Unit,
     onLongPress: (LatLon) -> Unit,
@@ -92,22 +93,21 @@ fun AmapMap(
     }
     val view = layers.view
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val isVisible = rememberUpdatedState(visible)
+    val resumed = remember(view) { booleanArrayOf(false) }
+    fun syncLifecycle() {
+        val shouldResume = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && isVisible.value
+        if (shouldResume && !resumed[0]) { view.onResume(); resumed[0] = true }
+        else if (!shouldResume && resumed[0]) { view.onPause(); resumed[0] = false }
+    }
+    LaunchedEffect(visible) { syncLifecycle() }
     DisposableEffect(view, lifecycle) {
-        var resumed = false
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> if (!resumed) { view.onResume(); resumed = true }
-                Lifecycle.Event.ON_PAUSE -> if (resumed) { view.onPause(); resumed = false }
-                else -> Unit
-            }
-        }
+        val observer = LifecycleEventObserver { _, _ -> syncLifecycle() }
         lifecycle.addObserver(observer)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && !resumed) {
-            view.onResume(); resumed = true
-        }
+        syncLifecycle()
         onDispose {
             lifecycle.removeObserver(observer)
-            if (resumed) view.onPause()
+            if (resumed[0]) { view.onPause(); resumed[0] = false }
             view.onDestroy()
         }
     }

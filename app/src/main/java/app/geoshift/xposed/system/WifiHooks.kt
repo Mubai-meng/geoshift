@@ -1,6 +1,7 @@
 package app.geoshift.xposed.system
 
 import android.os.Binder
+import android.os.SystemClock
 import app.geoshift.core.SimConfig
 import app.geoshift.xposed.AppScope
 import app.geoshift.xposed.Diag
@@ -38,10 +39,17 @@ class WifiHooks(private val hooks: Hooker, private val loader: ClassLoader, priv
     }
 
     fun install() {
-        // Wi-Fi lives in an APEX loaded after system_server starts; watching class loads stays only until it is found.
+        // Wi-Fi lives in an APEX loaded after system_server starts; watching class loads stays only until it is found
+        // (or at most 60 s after install, so an unusual ROM never pays a permanent loadClass hook cost).
+        val deadline = SystemClock.elapsedRealtime() + 60_000L
         val loadClass = ClassLoader::class.java.getDeclaredMethod("loadClass", String::class.java, java.lang.Boolean.TYPE)
         classLoading = hooks.after(loadClass) { call ->
-            if (call.args[0] == implementation) (call.result as? Class<*>)?.let { installService(it) }
+            if (call.args[0] == implementation) {
+                (call.result as? Class<*>)?.let { installService(it) }
+            } else if (SystemClock.elapsedRealtime() > deadline) {
+                classLoading?.let { runCatching { it.unhook() } }
+                classLoading = null
+            }
         }
         Reflect.classOrNull("com.android.server.SystemServiceManager", loader)?.let { manager ->
             hooks.declared(manager, "startService") { m ->

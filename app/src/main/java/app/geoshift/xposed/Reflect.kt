@@ -1,6 +1,7 @@
 package app.geoshift.xposed
 
 import io.github.libxposed.api.XposedInterface
+import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
@@ -30,6 +31,8 @@ object Reflect {
     val missing = ConcurrentHashMap<String, String>()
 
     private val methods = ConcurrentHashMap<String, Method>()
+    private val absentMethods = ConcurrentHashMap.newKeySet<String>()
+    private val constructors = ConcurrentHashMap<String, Constructor<*>>()
     private val fields = ConcurrentHashMap<String, Field>()
     private val absent = ConcurrentHashMap.newKeySet<String>()
 
@@ -101,9 +104,15 @@ object Reflect {
     }
 
     fun newInstance(type: Class<*>, vararg args: Any?): Any {
+        val key = buildString {
+            append(type.name).append('(')
+            for (a in args) append(a?.javaClass?.name ?: "null").append(',')
+        }
+        constructors[key]?.let { return it.newInstance(*args) }
         for (c in type.declaredConstructors) {
             if (!accepts(c.parameterTypes, args)) continue
             c.isAccessible = true
+            constructors[key] = c
             return c.newInstance(*args)
         }
         throw missingMember(type, "<init>(${args.size})", "构造")
@@ -124,6 +133,7 @@ object Reflect {
             for (a in args) append(a?.javaClass?.name ?: "null").append(',')
         }
         methods[key]?.let { return it }
+        if (key in absentMethods) return null
         var c: Class<*>? = type
         while (c != null) {
             for (m in c.declaredMethods) {
@@ -136,6 +146,7 @@ object Reflect {
         }
         // Interface default methods.
         for (i in type.interfaces) for (m in i.methods) if (m.name == name && accepts(m.parameterTypes, args)) return m.also { methods[key] = it }
+        absentMethods.add(key)
         return null
     }
 

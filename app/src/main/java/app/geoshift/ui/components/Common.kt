@@ -32,7 +32,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -153,22 +155,24 @@ fun IosSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: 
     }
 }
 
-/** iOS segmented control: a filled track with a raised white segment. */
+/** iOS segmented control: a capsule track with a raised pill segment (DESIGN.md §3). */
 @Composable
 fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
     val p = palette
     val haptic = LocalHapticFeedback.current
+    val activeBg = if (p.dark) Color(0xFF636366) else Color.White
     Row(
-        modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(17.dp)).background(p.fill).padding(2.dp),
+        modifier.fillMaxWidth().height(34.dp).clip(CircleShape).background(p.fill).padding(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEachIndexed { i, label ->
             val on = i == selected
+            val bg by animateColorAsState(if (on) activeBg else Color.Transparent, label = "seg")
             Box(
                 Modifier.weight(1f).fillMaxHeight()
-                    .let { if (on) it.shadow(1.5.dp, RoundedCornerShape(15.dp)) else it }
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(if (on) (if (p.dark) Color(0xFF636366) else Color.White) else Color.Transparent)
+                    .let { if (on) it.shadow(1.5.dp, CircleShape) else it }
+                    .clip(CircleShape)
+                    .background(bg)
                     .clickable {
                         if (i != selected) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         onSelect(i)
@@ -209,7 +213,11 @@ fun SettingRow(
     onClick: (() -> Unit)? = null,
     tint: Color? = null,
 ) {
-    val click = onClick ?: if (checked != null && onCheckedChange != null) ({ onCheckedChange(!checked) }) else null
+    val haptic = LocalHapticFeedback.current
+    val click = onClick ?: if (checked != null && onCheckedChange != null) ({
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onCheckedChange(!checked)
+    }) else null
     Row(
         Modifier.fillMaxWidth().heightIn(min = 52.dp).let { if (click != null && enabled) it.clickable(onClick = click) else it }
             .padding(horizontal = 16.dp, vertical = 9.dp),
@@ -321,7 +329,7 @@ fun CoordinateRow(
     val text = formatCoord(lat, lon)
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(MaterialTheme.shapes.extraSmall)
             .clickable {
                 clipboard.setText(AnnotatedString(text))
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -380,7 +388,8 @@ fun InputDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
 ) {
-    var text by remember { mutableStateOf(initial) }
+    var text by remember(initial) { mutableStateOf(initial) }
+    val submit = { onConfirm(text.trim()); onDismiss() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -389,13 +398,17 @@ fun InputDialog(
                 OutlinedTextField(
                     value = text, onValueChange = { text = it }, label = { if (label.isNotEmpty()) Text(label) },
                     singleLine = singleLine, minLines = if (singleLine) 1 else 3,
-                    keyboardOptions = if (number) KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text,
+                        imeAction = if (singleLine) ImeAction.Done else ImeAction.Default,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { if (singleLine) submit() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (hint != null) Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(text.trim()); onDismiss() }) { Text("确定") } },
+        confirmButton = { TextButton(onClick = submit) { Text("确定") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }

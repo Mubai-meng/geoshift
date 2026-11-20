@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -248,7 +247,7 @@ fun AmapKeyScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
 
         // ---- FAQ ----
         Row(
-            Modifier.padding(start = 20.dp, top = 22.dp, end = 16.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { faq = !faq }
+            Modifier.padding(start = 20.dp, top = 22.dp, end = 16.dp).fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { faq = !faq }
                 .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -296,7 +295,7 @@ private fun Step(n: Int, title: String, subtitle: String) {
 @Composable
 private fun CopyField(label: String, value: String, enabled: Boolean = true, onCopy: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), MaterialTheme.shapes.medium)
             .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

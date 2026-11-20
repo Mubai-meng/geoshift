@@ -9,6 +9,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
+import java.util.concurrent.Executors
+
+/** Single background thread for ordered disk writes so main-thread callers never block on file IO. */
+private val diskWriter = Executors.newSingleThreadExecutor { r -> Thread(r, "geoshift-store").apply { isDaemon = true } }
 
 /** A value kept as one JSON file, replaced atomically on every write. */
 private class JsonFile<T>(dir: File, name: String, private val serializer: KSerializer<T>, private val default: () -> T) {
@@ -22,7 +26,7 @@ private class JsonFile<T>(dir: File, name: String, private val serializer: KSeri
         default()
     }
 
-    fun write(value: T) {
+    @Synchronized fun write(value: T) {
         val out = file.startWrite()
         try {
             out.write(SimConfig.JSON.encodeToString(serializer, value).toByteArray())
@@ -31,6 +35,10 @@ private class JsonFile<T>(dir: File, name: String, private val serializer: KSeri
             file.failWrite(out)
             throw e
         }
+    }
+
+    fun writeAsync(value: T) {
+        diskWriter.execute { runCatching { write(value) } }
     }
 }
 
@@ -121,8 +129,8 @@ class Store(context: Context) {
     @Synchronized fun updateSettings(change: (Settings) -> Settings): Settings {
         val next = change(_settings.value)
         if (next != _settings.value) {
-            settingsFile.write(next)
             _settings.value = next
+            settingsFile.writeAsync(next)
         }
         return next
     }
@@ -131,29 +139,29 @@ class Store(context: Context) {
     @Synchronized fun updateRuntime(persist: Boolean = true, change: (Runtime) -> Runtime): Runtime {
         val next = change(_runtime.value)
         _runtime.value = next
-        if (persist) runtimeFile.write(next)
+        if (persist) runtimeFile.writeAsync(next)
         return next
     }
 
     @Synchronized fun setSdkKey(key: String) {
-        sdkKeyFile.write(key)
         _sdkKey.value = key
+        sdkKeyFile.writeAsync(key)
     }
 
     @Synchronized fun setSdkStyleId(id: String) {
         val trimmed = id.trim()
-        sdkStyleIdFile.write(trimmed)
         _sdkStyleId.value = trimmed
+        sdkStyleIdFile.writeAsync(trimmed)
     }
 
     @Synchronized fun log(message: String) {
         val next = (listOf(LogEntry(System.currentTimeMillis(), message)) + _logs.value).take(100)
-        logFile.write(next)
         _logs.value = next
+        logFile.writeAsync(next)
     }
 
     @Synchronized fun clearLogs() {
-        logFile.write(emptyList())
         _logs.value = emptyList()
+        logFile.writeAsync(emptyList())
     }
 }

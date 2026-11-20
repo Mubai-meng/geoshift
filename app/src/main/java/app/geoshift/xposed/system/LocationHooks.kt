@@ -313,7 +313,8 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
 
     /** True when a fix is (close to) the simulated position, i.e. it must not reach an uncovered app. */
     fun nearSimulated(c: SimConfig, l: Location): Boolean = try {
-        Geo.distance(Fakes.fix(c, "fused").point, LatLon(l.latitude, l.longitude)) < 500
+        val ref = lastFake?.takeIf { SystemClock.elapsedRealtime() - lastPumpAt < 1500 } ?: Fakes.fix(c, "fused").point
+        Geo.distance(ref, LatLon(l.latitude, l.longitude)) < 500
     } catch (_: Throwable) {
         false
     }

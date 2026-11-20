@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -25,17 +26,20 @@ import kotlin.math.sin
  * (0 = north, 90 = east), so a physical compass needle pointing to North rotates by `-heading`.
  * Uses TYPE_ROTATION_VECTOR when available, with automatic fallback to TYPE_GEOMAGNETIC_ROTATION_VECTOR
  * or Accelerometer + Magnetometer.
+ *
+ * Updates are gated by a 0.5° deadband and automatically paused when [enabled] is false or the
+ * lifecycle is stopped.
  */
 @Composable
-fun rememberDeviceHeading(): State<Float?> {
+fun rememberDeviceHeading(enabled: Boolean = true): State<Float?> {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val heading = remember { mutableStateOf<Float?>(null) }
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
 
-    DisposableEffect(lifecycle, sensorManager) {
-        if (sensorManager == null) {
-            heading.value = null
+    DisposableEffect(lifecycle, sensorManager, enabled) {
+        if (!enabled || sensorManager == null) {
+            if (sensorManager == null) heading.value = null
             return@DisposableEffect onDispose { }
         }
         val rotSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -79,8 +83,11 @@ fun rememberDeviceHeading(): State<Float?> {
                 smoothSin += alpha * (s - smoothSin)
                 smoothCos += alpha * (c - smoothCos)
             }
-            val deg = Math.toDegrees(atan2(smoothSin, smoothCos).toDouble()).toFloat()
-            heading.value = (deg + 360f) % 360f
+            val deg = (Math.toDegrees(atan2(smoothSin, smoothCos).toDouble()).toFloat() + 360f) % 360f
+            val prev = heading.value
+            if (prev == null || abs(((deg - prev + 540f) % 360f) - 180f) >= 0.5f) {
+                heading.value = deg
+            }
         }
 
         val listener = object : SensorEventListener {

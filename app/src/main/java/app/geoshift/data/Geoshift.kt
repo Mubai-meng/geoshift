@@ -35,6 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,7 +73,9 @@ class Geoshift private constructor(context: Context) {
     /** Whether Geoshift's own screen is showing; the service clock slows down while it is not. */
     @Volatile var uiVisible = false
 
-    private val plans = HashMap<String, RoutePlan>()
+    private val plans = object : LinkedHashMap<String, RoutePlan>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RoutePlan>) = size > 32
+    }
 
     /** Finishes before anything is written to the hooks (see [resumeAfterRestart]). */
     private val resumed = scope.async { runCatching { resumeAfterRestart() } }
@@ -159,7 +162,7 @@ class Geoshift private constructor(context: Context) {
 
     // ---- Capabilities -------------------------------------------------------------------------
 
-    fun capabilities(): Capabilities {
+    fun capabilities(includePing: Boolean = true): Capabilities {
         val c = app
         fun granted(p: String) = c.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
         val lm = c.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
@@ -175,7 +178,7 @@ class Geoshift private constructor(context: Context) {
             }.getOrDefault(false),
             nearbyWifi = Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.NEARBY_WIFI_DEVICES),
             framework = bridge.framework.value,
-            hookActive = bridge.ping() || bridge.hookActive,
+            hookActive = (includePing && bridge.ping()) || bridge.hookActive,
         )
         _caps.value = caps
         return caps
@@ -595,6 +598,24 @@ class Geoshift private constructor(context: Context) {
     }
 
     private fun addressKey(p: LatLon) = String.format(Locale.ROOT, "%.5f,%.5f", p.lat, p.lon)
+
+    /**
+     * Cancellable suspend version of [reverseGeocode]: uses coroutine [delay] between retries so
+     * tapping another point cancels the stale lookup immediately without blocking a thread.
+     */
+    suspend fun reverseGeocodeSuspend(p: LatLon): String {
+        if (!store.settings.value.privacyAccepted) return ""
+        val key = addressKey(p)
+        synchronized(addressCache) { addressCache[key] }?.let { return it }
+        var result = ""
+        for (attempt in 0 until 3) {
+            if (attempt > 0) delay(1500L * attempt)
+            result = lookupAddress(p)
+            if (result.isNotEmpty()) break
+        }
+        if (result.isNotEmpty()) synchronized(addressCache) { addressCache[key] = result }
+        return result
+    }
 
     /**
      * Address of [p]: cached when known, else looked up (AMap with a key, else OpenStreetMap), retried

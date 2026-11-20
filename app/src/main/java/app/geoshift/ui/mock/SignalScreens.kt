@@ -173,7 +173,7 @@ private fun <T> ScanSheet(title: String, rows: List<ScanRow<T>>, icon: ImageVect
         Text("点击条目保存为预设。扫描来自手机系统，刷新频率可能受限。", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
         LazyColumn(Modifier.heightIn(max = 480.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-            items(rows) { row ->
+            items(rows, key = { "${it.title}|${it.subtitle}" }) { row ->
                 ListItem(
                     headlineContent = { Text(row.title) },
                     supportingContent = { Text(row.subtitle) },

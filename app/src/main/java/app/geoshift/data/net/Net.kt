@@ -127,6 +127,28 @@ class RoadRouter(private val amap: AmapSdk) {
     }
     private var lastAmap = 0L
 
+    /** Road path across all [waypoints] in order. Batches OSRM multi-point requests into one call when uncached. */
+    fun route(profile: RoadProfile, waypoints: List<LatLon>): List<LatLon> {
+        if (waypoints.size < 2) return waypoints
+        if (!profile.road) return waypoints
+        // OSRM natively supports multi-waypoint routing in one HTTP round-trip.
+        if (!amap.ready && waypoints.size > 2) {
+            val allCached = waypoints.zipWithNext().all { (a, b) ->
+                val k = String.format(Locale.ROOT, "osrm|%s|%.6f,%.6f|%.6f,%.6f", profile.name, a.lat, a.lon, b.lat, b.lon)
+                synchronized(cache) { cache.containsKey(k) }
+            }
+            if (!allCached) {
+                val road = osrmMany(profile, waypoints)
+                val path = ArrayList<LatLon>(road.size + 2)
+                path.add(waypoints.first())
+                for (p in road) if (Geo.distance(path.last(), p) > 0.5) path.add(p)
+                if (Geo.distance(path.last(), waypoints.last()) > 0.5) path.add(waypoints.last()) else path[path.lastIndex] = waypoints.last()
+                return path
+            }
+        }
+        return join(waypoints.zipWithNext { a, b -> section(profile, a, b) })
+    }
+
     /** Road path from a to b, starting at a and ending at b. Blocking. */
     fun section(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
         if (!profile.road) return listOf(a, b)
@@ -158,10 +180,12 @@ class RoadRouter(private val amap: AmapSdk) {
         return amap.direction(profile, a, b)
     }
 
-    private fun osrm(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
-        val url = String.format(Locale.ROOT,
-            "https://routing.openstreetmap.de/routed-%s/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson",
-            profile.osrm, a.lon, a.lat, b.lon, b.lat)
+    private fun osrm(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> =
+        osrmMany(profile, listOf(a, b))
+
+    private fun osrmMany(profile: RoadProfile, waypoints: List<LatLon>): List<LatLon> {
+        val coordsParam = waypoints.joinToString(";") { String.format(Locale.ROOT, "%.6f,%.6f", it.lon, it.lat) }
+        val url = "https://routing.openstreetmap.de/routed-${profile.osrm}/route/v1/driving/$coordsParam?overview=full&geometries=geojson"
         val json = runCatching { JSONObject(httpText(url, allowStatus = 400)) }.getOrElse { if (it is UserError) throw it else fail("道路服务返回了无法识别的内容。") }
         if (json.optString("code") != "Ok")
             fail(if (json.optString("code") == "NoRoute") "这两点之间没有找到道路，可改用「手选」逐点连接。" else "道路服务错误：${json.optString("message", json.optString("code"))}")

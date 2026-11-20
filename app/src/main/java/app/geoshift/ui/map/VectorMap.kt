@@ -35,6 +35,11 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
+/** A request to move the camera; a new [token] re-triggers the same target. */
+data class CenterRequest(val target: LatLon, val zoom: Double? = null, val bearing: Double? = null, val token: Long = System.nanoTime())
+
+class MapCamera(var target: LatLon, var zoom: Double = 15.0, var handledToken: Long? = null)
+
 /** Vector tiles from OpenFreeMap: crisp labels, smooth zoom and rotation, no key. WGS-84 like OSM. */
 private const val LIGHT_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 private const val DARK_STYLE = "https://tiles.openfreemap.org/styles/dark"
@@ -58,6 +63,13 @@ private fun amapStyle(dark: Boolean) = """{"version":8,
   "layers":[
     {"id":"bg","type":"background","paint":{"background-color":"${if (dark) "#1B1E27" else "#F5F3EE"}"}},
     {"id":"amap","type":"raster","source":"amap","paint":${darkRaster(dark)}}]}"""
+
+/** Standard OpenStreetMap raster tiles rendered through MapLibre (rotatable, hardware-accelerated). */
+private fun osmStyle(dark: Boolean) = """{"version":8,
+  "sources":{"osm":{"type":"raster","tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,"minzoom":2,"maxzoom":19}},
+  "layers":[
+    {"id":"bg","type":"background","paint":{"background-color":"${if (dark) "#1B1E27" else "#F2EFE9"}"}},
+    {"id":"osm","type":"raster","source":"osm","paint":${darkRaster(dark)}}]}"""
 
 /** Esri World Imagery, next zoom level drawn at 128 dp: twice the detail of plain 256-pixel tiles. */
 private const val SATELLITE_STYLE = """{"version":8,
@@ -83,6 +95,7 @@ fun VectorMap(
     source: MapSource,
     camera: MapCamera,
     center: CenterRequest?,
+    visible: Boolean = true,
     onBearingChanged: (Double) -> Unit = {},
     onTap: (LatLon) -> Unit,
     onLongPress: (LatLon) -> Unit,
@@ -100,28 +113,26 @@ fun VectorMap(
     }
     val view = layers.view
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val isVisible = rememberUpdatedState(visible)
+    val activeState = remember(view) { booleanArrayOf(false, false) } // [started, resumed]
+    fun syncLifecycle() {
+        val state = lifecycle.currentState
+        val shouldStart = state.isAtLeast(Lifecycle.State.STARTED) && isVisible.value
+        val shouldResume = state.isAtLeast(Lifecycle.State.RESUMED) && isVisible.value
+        if (shouldStart && !activeState[0]) { view.onStart(); activeState[0] = true }
+        if (shouldResume && !activeState[1]) { view.onResume(); activeState[1] = true }
+        if (!shouldResume && activeState[1]) { view.onPause(); activeState[1] = false }
+        if (!shouldStart && activeState[0]) { view.onStop(); activeState[0] = false }
+    }
+    LaunchedEffect(visible) { syncLifecycle() }
     DisposableEffect(view, lifecycle) {
-        var started = false
-        var resumed = false
-        fun start() { if (!started) { view.onStart(); started = true } }
-        fun resume() { start(); if (!resumed) { view.onResume(); resumed = true } }
-        fun pause() { if (resumed) { view.onPause(); resumed = false } }
-        fun stop() { pause(); if (started) { view.onStop(); started = false } }
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> start()
-                Lifecycle.Event.ON_RESUME -> resume()
-                Lifecycle.Event.ON_PAUSE -> pause()
-                Lifecycle.Event.ON_STOP -> stop()
-                else -> Unit
-            }
-        }
+        val observer = LifecycleEventObserver { _, _ -> syncLifecycle() }
         lifecycle.addObserver(observer)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) resume()
-        else if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) start()
+        syncLifecycle()
         onDispose {
             lifecycle.removeObserver(observer)
-            stop()
+            if (activeState[1]) { view.onPause(); activeState[1] = false }
+            if (activeState[0]) { view.onStop(); activeState[0] = false }
             view.onDestroy()
         }
     }
@@ -138,6 +149,7 @@ fun VectorMap(
         MapLibre.setConnected(online)
         val spec = when {
             !online -> StyleSpec(null, OFFLINE_STYLE)
+            source == MapSource.OSM -> StyleSpec(null, osmStyle(dark))
             source == MapSource.AMAP -> StyleSpec(null, amapStyle(dark))
             source == MapSource.SATELLITE -> StyleSpec(null, SATELLITE_STYLE)
             else -> StyleSpec(if (dark) DARK_STYLE else LIGHT_STYLE, null)
