@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -83,6 +84,8 @@ import app.geoshift.ui.components.RowDivider
 import app.geoshift.ui.components.SectionTitle
 import app.geoshift.ui.components.SettingGroup
 import app.geoshift.ui.components.SettingRow
+import app.geoshift.ui.components.StatusPill
+import app.geoshift.ui.components.StatusTone
 import app.geoshift.ui.components.ToggleTile
 import app.geoshift.ui.components.formatCoord
 import app.geoshift.ui.components.formatDistance
@@ -289,19 +292,31 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
             .let { if (!on) it.border(BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)), shape) else it }
             .background(background).padding(20.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(CircleShape).background(if (on) Color.White else MaterialTheme.colorScheme.outline))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                when {
-                    on && r.routeFinished -> "路线已走完"
-                    on && r.paused -> "路线已暂停"
-                    on && r.routeMode -> "路线模拟中"
-                    on -> "正在模拟位置"
-                    r.error.isNotEmpty() -> "模拟启动失败"
-                    else -> "未在模拟"
-                },
-                style = MaterialTheme.typography.titleMedium, color = fg,
+        val statusLabel = when {
+            on && r.routeFinished -> "路线已走完"
+            on && r.paused -> "路线已暂停"
+            on && r.routeMode -> "路线模拟中"
+            on -> "正在模拟位置"
+            r.error.isNotEmpty() -> "模拟启动失败"
+            else -> "未在模拟"
+        }
+        if (on) {
+            Row(
+                Modifier
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.20f))
+                    .border(0.6.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(Color.White))
+                Text(statusLabel, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+            }
+        } else {
+            StatusPill(
+                text = statusLabel,
+                tone = if (r.error.isNotEmpty()) StatusTone.Error else StatusTone.Muted,
             )
         }
         Spacer(Modifier.size(14.dp))
@@ -332,7 +347,7 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
             }
             Spacer(Modifier.size(2.dp))
             Text(String.format(Locale.ROOT, "%.1f km/h · 方向 %.0f°（%s）", r.speed * 3.6, r.bearing, dir),
-                style = MaterialTheme.typography.bodySmall, color = sub)
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"), color = sub)
         }
         if (on && r.routeMode && s.currentRoute.size >= 2) {
             val totalLength = s.currentRouteLength
@@ -350,7 +365,7 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
                     "bounce" -> "往返中 · ${(r.progress * 100).toInt()}%"
                     else -> if (r.routeFinished) "已到达终点"
                         else "${(r.progress * 100).toInt()}% · 剩 ${formatDistance(remainingMetres)}（约 $etaStr）"
-                }, style = MaterialTheme.typography.bodySmall, color = fg)
+                }, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"), color = fg)
             }
             Spacer(Modifier.size(6.dp))
             LinearProgressIndicator(progress = { r.progress.toFloat() }, modifier = Modifier.fillMaxWidth().clip(CircleShape),
@@ -420,7 +435,8 @@ private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("速度", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             Text("${formatKmh(st.speed * 3.6)} km/h" + if (st.customSpeed) "（自定义）" else "",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { editSpeed = true }) { Text("设定") }
         }
         if (editSpeed) InputDialog(
@@ -513,18 +529,33 @@ private fun Diagnostics(s: AppState, expanded: Boolean, onToggle: () -> Unit, on
             Column {
                 rows.forEach { (title, status, details) ->
                     RowDivider()
-                    Row(Modifier.fillMaxWidth().padding(start = 54.dp, end = 16.dp, top = 10.dp, bottom = 10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 54.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
                         Column(Modifier.weight(1f)) {
                             Text(title, style = MaterialTheme.typography.bodyMedium)
-                            Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.size(2.dp))
+                            Text(
+                                details,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontFeatureSettings = "tnum",
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         Spacer(Modifier.width(8.dp))
-                        Text(status, style = MaterialTheme.typography.labelMedium,
-                            color = when (status) {
-                                "出现错误" -> MaterialTheme.colorScheme.error
-                                "已命中", "已注入" -> MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            })
+                        StatusPill(
+                            text = status,
+                            tone = when (status) {
+                                "出现错误" -> StatusTone.Error
+                                "已命中", "已注入" -> StatusTone.Live
+                                "已安装", "已同步" -> StatusTone.Info
+                                "等待中", "历史报告" -> StatusTone.Warn
+                                else -> StatusTone.Muted
+                            },
+                        )
                     }
                 }
                 RowDivider()

@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -314,7 +315,50 @@ fun ToggleTile(
     }
 }
 
-/** Clickable coordinate row with haptic feedback and tap-to-copy. */
+/** Semantic tones for [StatusPill] (Supabase-inspired compact status badges, DESIGN.md §6). */
+enum class StatusTone { Live, Info, Warn, Error, Muted }
+
+/** Compact capsule status badge with a leading indicator dot and subtle hairline border. */
+@Composable
+fun StatusPill(
+    text: String,
+    tone: StatusTone = StatusTone.Muted,
+    modifier: Modifier = Modifier,
+    dot: Boolean = true,
+) {
+    val p = palette
+    val accent = when (tone) {
+        StatusTone.Live -> p.green
+        StatusTone.Info -> p.blue
+        StatusTone.Warn -> p.orange
+        StatusTone.Error -> p.red
+        StatusTone.Muted -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val bgAlpha = if (tone == StatusTone.Muted) 0.10f else if (p.dark) 0.18f else 0.12f
+    val borderAlpha = if (tone == StatusTone.Muted) 0.22f else 0.34f
+    Row(
+        modifier
+            .clip(CircleShape)
+            .background(accent.copy(alpha = bgAlpha))
+            .border(0.6.dp, accent.copy(alpha = borderAlpha), CircleShape)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        if (dot) Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Medium,
+                fontFeatureSettings = "tnum",
+            ),
+            color = accent,
+            maxLines = 1,
+        )
+    }
+}
+
+/** Clickable coordinate row with monospace telemetry digits, haptic feedback and tap-to-copy. */
 @Composable
 fun CoordinateRow(
     lat: Double,
@@ -339,7 +383,7 @@ fun CoordinateRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(text, style = style.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"), color = color)
+        Text(text, style = style.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"), color = color)
         Icon(
             Icons.Rounded.ContentCopy,
             contentDescription = "复制坐标",

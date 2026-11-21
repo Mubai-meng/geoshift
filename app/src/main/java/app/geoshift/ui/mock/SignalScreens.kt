@@ -65,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,6 +84,8 @@ import app.geoshift.ui.components.EmptyState
 import app.geoshift.ui.components.IconBadge
 import app.geoshift.ui.components.PortalCard
 import app.geoshift.ui.components.SectionTitle
+import app.geoshift.ui.components.StatusPill
+import app.geoshift.ui.components.StatusTone
 import app.geoshift.ui.theme.Success
 import app.geoshift.core.CellSpec
 import app.geoshift.core.CellType
@@ -139,12 +142,37 @@ private fun SwitchCard(title: String, description: String, checked: Boolean, cur
         }
         if (current != null) {
             Spacer(Modifier.size(10.dp))
-            Text("当前配置：$current", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "当前配置：$current",
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
-        Spacer(Modifier.size(6.dp))
-        Text(status ?: "尚无目标应用读取报告。配置保存不等于目标已收到，不改变实际无线网络。",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (status != null && !statusOk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.size(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatusPill(
+                text = when {
+                    status == null -> "待触发"
+                    statusOk -> "系统已替换"
+                    else -> "出现错误"
+                },
+                tone = when {
+                    status == null -> StatusTone.Muted
+                    statusOk -> StatusTone.Live
+                    else -> StatusTone.Error
+                },
+            )
+            Text(
+                status ?: "配置保存不等于目标已收到，不改变实际无线网络。",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = if (status != null) FontFamily.Monospace else FontFamily.Default,
+                    fontFeatureSettings = "tnum",
+                ),
+                color = if (status != null && !statusOk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -152,7 +180,14 @@ private fun SwitchCard(title: String, description: String, checked: Boolean, cur
 private fun PresetItem(icon: ImageVector, title: String, subtitle: String, active: Boolean, onApply: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     ListItem(
         headlineContent = { Text(title, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(subtitle, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
         leadingContent = { if (active) IconBadge(Icons.Rounded.CheckCircle, tint = Success) else IconBadge(icon) },
         trailingContent = {
             Row {

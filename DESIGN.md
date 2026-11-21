@@ -5,6 +5,10 @@ Geoshift 的界面规范。改 UI 之前先读这一份；代码中的单一来�
 
 结构参考 [Uber DESIGN.md](https://github.com/VoltAgent/awesome-design-md/tree/main/design-md/uber)
 （同为以地图为主的出行类应用）：胶囊是唯一的交互形状，表面默认平面，阴影只给浮在地图上的东西。
+控制台、系统诊断与无线参数排版参考 [Supabase DESIGN.md](https://github.com/VoltAgent/awesome-design-md/tree/main/design-md/supabase)
+（等宽数字、克制的翡翠/薄荷绿实时状态胶囊、紧凑参数行）。
+官网下载页（`site/index.html`）参考 [Mercury DESIGN.md](https://github.com/VoltAgent/awesome-design-md/tree/main/design-md/mercury)
+（深靛紫夜色画布、色调抬升卡片、胶囊按钮与轻盈字重）。
 配色沿用本应用自己的「长春花蓝 + 薄荷绿」，和 3.3.9 起的图标（蓝底玻璃定位针 + 薄荷/青色光环）保持一致，**不**照搬 Uber 的黑白配色。
 
 ## 1. 气质
@@ -59,6 +63,7 @@ Geoshift 的界面规范。改 UI 之前先读这一份；代码中的单一来�
 
 系统字体，层级按 Theme.kt `AppType`：标题 34/28/22 粗体，正文 17/15，辅助 13/12。
 粗体只给标题；按钮和强调用 SemiBold。
+技术参数（坐标、速度、航向、卫星数、BSSID、基站 ID、诊断进程与时间戳）统一使用 `FontFamily.Monospace` + `tnum`（参照 Supabase 的工程可读性原则）。
 
 ## 6. 组件
 
@@ -67,6 +72,7 @@ Geoshift 的界面规范。改 UI 之前先读这一份；代码中的单一来�
 - **地图浮动按钮**：48dp 圆形或胶囊工具组，Level 1。
 - **开始/停止**：60dp 圆形，蓝（开始）/ 红（停止）。
 - **开关**：打开时为薄荷绿轨道。
+- **状态胶囊（`StatusPill`）**：参照 Supabase `pill-tag`，用于系统诊断项、控制台摘要、Wi-Fi/基站替换状态；胶囊圆角 + 低饱和语义底色 + 0.6dp 描边 + 状态圆点，不再使用裸文字表现运行状态。
 
 ## 7. 该做 / 别做
 
