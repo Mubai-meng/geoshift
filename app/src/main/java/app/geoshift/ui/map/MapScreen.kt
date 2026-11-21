@@ -401,93 +401,103 @@ fun MapScreen(
             }
         }
 
-        // ---- Right: floating tools ----
-        // Hidden while search results are open (they would cover the list's right edge).
-        if (results.isEmpty()) Column(
-            // Centred between the top overlay and the bottom card, scrollable so small screens never clip tools.
-            Modifier.align(Alignment.CenterEnd)
-                .padding(
-                    top = with(density) { topOverlayHeight.toDp() },
-                    end = 12.dp,
-                    bottom = with(density) { bottomCardHeight.toDp() },
+        // ---- Left & Right: floating tools ----
+        // Split across both edges (~215 dp each instead of one 440 dp stack) so opening PreviewCard
+        // or RouteEditorCard never clips/covers the zoom-out button. Hidden while search results are open.
+        if (results.isEmpty()) {
+            val toolsTop = with(density) { topOverlayHeight.toDp() } + 4.dp
+            val toolsBottom = with(density) { bottomCardHeight.toDp() } + 4.dp
+
+            Column(
+                Modifier.align(Alignment.CenterStart)
+                    .padding(start = 12.dp, top = toolsTop, bottom = toolsBottom)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                MapCompass(
+                    bearing = mapBearing,
+                    visible = visible,
+                    onClick = { heading ->
+                        if (abs(signedBearing(mapBearing)) > 1.0) {
+                            onCenter(CenterRequest(camera.target, camera.zoom, bearing = 0.0))
+                            vm.toast("已回正正北")
+                        } else if (heading != null) {
+                            val norm = ((heading % 360f + 360f) % 360f)
+                            val dir = when (((norm / 45f) + 0.5f).toInt() % 8) {
+                                0 -> "正北"; 1 -> "东北"; 2 -> "正东"; 3 -> "东南"
+                                4 -> "正南"; 5 -> "西南"; 6 -> "正西"; else -> "西北"
+                            }
+                            vm.toast("当前朝向：$dir ${norm.toInt()}°")
+                        } else {
+                            vm.toast("当前已指向正北（0°）")
+                        }
+                    },
                 )
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            MapCompass(
-                bearing = mapBearing,
-                visible = visible,
-                onClick = { heading ->
-                    if (abs(signedBearing(mapBearing)) > 1.0) {
-                        onCenter(CenterRequest(camera.target, camera.zoom, bearing = 0.0))
-                        vm.toast("已回正正北")
-                    } else if (heading != null) {
-                        val norm = ((heading % 360f + 360f) % 360f)
-                        val dir = when (((norm / 45f) + 0.5f).toInt() % 8) {
-                            0 -> "正北"; 1 -> "东北"; 2 -> "正东"; 3 -> "东南"
-                            4 -> "正南"; 5 -> "西南"; 6 -> "正西"; else -> "西北"
-                        }
-                        vm.toast("当前朝向：$dir ${norm.toInt()}°")
-                    } else {
-                        vm.toast("当前已指向正北（0°）")
-                    }
-                },
-            )
-            ToolGroup {
-                Box {
-                    MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}") { mapMenu = true }
-                    DropdownMenu(expanded = mapMenu, onDismissRequest = { mapMenu = false }) {
-                        MapSource.entries.forEach { source ->
-                            DropdownMenuItem(
-                                text = { Text(if (source == MapSource.AMAP && sdkKey.isNotEmpty()) "高德地图 · 官方 SDK（已填 Key）" else source.menuLabel) },
-                                trailingIcon = { if (source == s.settings.mapSource) Icon(Icons.Rounded.Check, "已选择") },
-                                onClick = {
-                                    mapMenu = false
-                                    if (source != s.settings.mapSource) vm.run("已切换至${source.label}") {
-                                        updateSettings { it.copy(mapSource = source) }
-                                    }
-                                },
-                            )
+                ToolGroup {
+                    Box {
+                        MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}") { mapMenu = true }
+                        DropdownMenu(expanded = mapMenu, onDismissRequest = { mapMenu = false }) {
+                            MapSource.entries.forEach { source ->
+                                DropdownMenuItem(
+                                    text = { Text(if (source == MapSource.AMAP && sdkKey.isNotEmpty()) "高德地图 · 官方 SDK（已填 Key）" else source.menuLabel) },
+                                    trailingIcon = { if (source == s.settings.mapSource) Icon(Icons.Rounded.Check, "已选择") },
+                                    onClick = {
+                                        mapMenu = false
+                                        if (source != s.settings.mapSource) vm.run("已切换至${source.label}") {
+                                            updateSettings { it.copy(mapSource = source) }
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
-            }
-            ToolGroup {
-                MapTool(Icons.Rounded.PinDrop, "回到模拟位置") { onCenter(CenterRequest(r.position)) }
-                ToolDivider()
-                MapTool(Icons.Rounded.MyLocation, "真实位置") {
-                    val cached = realPosition
-                    if (r.enabled && cached != null) {
-                        select(cached)
-                        onCenter(CenterRequest(cached, 16.0))
-                        vm.toast("已定位到模拟前的真实位置")
-                    } else {
-                        vm.run<LatLon>(onDone = { select(it); onCenter(CenterRequest(it, 16.0)) }) { deviceLocation() }
+                ToolGroup {
+                    MapTool(Icons.Rounded.Route, "路线编辑", active = editing) {
+                        if (!editing) { draft.clear(); selected = null; query = ""; searchGeneration++; searching = false; results = emptyList(); focus.clearFocus() }
+                        editing = !editing
+                    }
+                    ToolDivider()
+                    MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.joystick) {
+                        vm.run(if (r.joystick) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { joystick(!r.joystick) }
                     }
                 }
             }
-            ToolGroup {
-                MapTool(Icons.Rounded.Route, "路线编辑", active = editing) {
-                    if (!editing) { draft.clear(); selected = null; query = ""; searchGeneration++; searching = false; results = emptyList(); focus.clearFocus() }
-                    editing = !editing
+
+            Column(
+                Modifier.align(Alignment.CenterEnd)
+                    .padding(top = toolsTop, end = 12.dp, bottom = toolsBottom)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                ToolGroup {
+                    MapTool(Icons.Rounded.PinDrop, "回到模拟位置") { onCenter(CenterRequest(r.position)) }
+                    ToolDivider()
+                    MapTool(Icons.Rounded.MyLocation, "真实位置") {
+                        val cached = realPosition
+                        if (r.enabled && cached != null) {
+                            select(cached)
+                            onCenter(CenterRequest(cached, 16.0))
+                            vm.toast("已定位到模拟前的真实位置")
+                        } else {
+                            vm.run<LatLon>(onDone = { select(it); onCenter(CenterRequest(it, 16.0)) }) { deviceLocation() }
+                        }
+                    }
                 }
-                ToolDivider()
-                MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.joystick) {
-                    vm.run(if (r.joystick) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { joystick(!r.joystick) }
-                }
-            }
-            ToolGroup {
-                MapTool(Icons.Rounded.Add, "放大（长按连续放大）", repeatOnHold = true) {
-                    val next = (camera.zoom + 1.0).coerceAtMost(19.0)
-                    camera.zoom = next
-                    onCenter(CenterRequest(camera.target, next))
-                }
-                ToolDivider()
-                MapTool(Icons.Rounded.Remove, "缩小（长按连续缩小）", repeatOnHold = true) {
-                    val next = (camera.zoom - 1.0).coerceAtLeast(3.0)
-                    camera.zoom = next
-                    onCenter(CenterRequest(camera.target, next))
+                ToolGroup {
+                    MapTool(Icons.Rounded.Add, "放大（长按连续放大）", repeatOnHold = true) {
+                        val next = (camera.zoom + 1.0).coerceAtMost(19.0)
+                        camera.zoom = next
+                        onCenter(CenterRequest(camera.target, next))
+                    }
+                    ToolDivider()
+                    MapTool(Icons.Rounded.Remove, "缩小（长按连续缩小）", repeatOnHold = true) {
+                        val next = (camera.zoom - 1.0).coerceAtLeast(3.0)
+                        camera.zoom = next
+                        onCenter(CenterRequest(camera.target, next))
+                    }
                 }
             }
         }
