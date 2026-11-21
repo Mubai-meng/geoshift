@@ -112,6 +112,8 @@ fun MapScreen(
     val camera = remember { MapCamera(r.position) }
     var mapBearing by remember { mutableDoubleStateOf(0.0) }
     var bottomCardHeight by remember { mutableIntStateOf(0) }
+    // Height of the top overlay (search bar + history / tip / results), so the right-hand tools start below it.
+    var topOverlayHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     // With the user's AMap Android key the AMap layer is the official SDK map; MapLibre otherwise.
     val sdk = vm.engine.amapSdk
@@ -288,7 +290,7 @@ fun MapScreen(
         )
 
         // ---- Top: search bar (also adds waypoints while editing a route) ----
-        Column(Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
+        Column(Modifier.onSizeChanged { topOverlayHeight = it.height }.statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
             SearchBar(
                 query = query,
                 searching = searching,
@@ -385,10 +387,15 @@ fun MapScreen(
         }
 
         // ---- Right: floating tools ----
-        Column(
-            // Centred between the top bar and the bottom card, scrollable so small screens never clip tools.
-            Modifier.align(Alignment.CenterEnd).statusBarsPadding()
-                .padding(top = 72.dp, end = 12.dp, bottom = with(density) { bottomCardHeight.toDp() })
+        // Hidden while search results are open (they would cover the list's right edge).
+        if (results.isEmpty()) Column(
+            // Centred between the top overlay and the bottom card, scrollable so small screens never clip tools.
+            Modifier.align(Alignment.CenterEnd)
+                .padding(
+                    top = with(density) { topOverlayHeight.toDp() },
+                    end = 12.dp,
+                    bottom = with(density) { bottomCardHeight.toDp() },
+                )
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -488,14 +495,15 @@ fun MapScreen(
                     count = draft.size,
                     length = editLength,
                     profile = profile,
+                    // "沿 OpenStreetMap 道路" / "沿高德道路": space only around Latin names.
                     roadStatus = when {
                         profile == RoadProfile.FLY -> "点与点之间直线飞行，按飞行速度播放"
                         profile == RoadProfile.STRAIGHT -> "纯手选：点哪走哪，点与点之间直线连接，不调用道路服务"
                         !profile.road -> null
-                        draft.size < 2 -> "点选途经点，路线会沿${router.source}道路连接"
+                        draft.size < 2 -> "点选途经点，路线会沿${spaced(router.source)}道路连接"
                         roadBusy -> "正在沿道路规划…"
                         roadError != null -> roadError
-                        else -> "已沿${router.source}道路连接"
+                        else -> "已沿${spaced(router.source)}道路连接"
                     },
                     roadFailed = roadError != null,
                     onProfile = { p -> vm.run { store.updateSettings { it.copy(roadProfile = p) } } },
@@ -587,3 +595,6 @@ fun MapScreen(
         }
     }
 }
+
+/** Pads a name with spaces when it starts with a Latin letter, for mixed Chinese / English text. */
+private fun spaced(name: String) = if (name.firstOrNull()?.let { it < '\u0080' } == true) " $name " else name

@@ -217,7 +217,7 @@ fun HistoryScreen(
         if (rows.isEmpty()) {
             when {
                 query.isNotBlank() -> EmptyState(Icons.Rounded.Search, if (tab == 1) "未找到匹配的路线" else "未找到匹配的位置", "尝试使用不同的关键词搜索")
-                tab == 0 -> EmptyState(Icons.Rounded.Place, "还没有收藏位置", "在地图上选点，点卡片右下角的加号收藏")
+                tab == 0 -> EmptyState(Icons.Rounded.Place, "还没有收藏位置", "在地图上选点，点卡片里的「收藏」")
                 tab == 1 -> EmptyState(Icons.Rounded.Route, "还没有路线", "点地图右侧的路线按钮，依次点选途经点")
                 else -> EmptyState(Icons.Rounded.Radar, "暂无环境记录", "在「控制台」记录此处的基站与 Wi-Fi")
             }

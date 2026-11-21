@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -327,15 +328,17 @@ internal fun RouteEditorCard(
             maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.size(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onUndo, enabled = count > 0) {
-                Icon(Icons.AutoMirrored.Rounded.Undo, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("撤销")
+        // Default 24 dp side padding leaves the save button too narrow on small phones ("保存路/线").
+        val compact = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onUndo, enabled = count > 0, contentPadding = compact) {
+                Icon(Icons.AutoMirrored.Rounded.Undo, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("撤销", maxLines = 1, softWrap = false)
             }
-            OutlinedButton(onClick = onClear, enabled = count > 0) {
-                Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("清空")
+            OutlinedButton(onClick = onClear, enabled = count > 0, contentPadding = compact) {
+                Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("清空", maxLines = 1, softWrap = false)
             }
-            Button(onClick = onSave, enabled = count >= 2, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("保存路线")
+            Button(onClick = onSave, enabled = count >= 2, modifier = Modifier.weight(1f), contentPadding = compact) {
+                Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("保存路线", maxLines = 1, softWrap = false)
             }
         }
     }
