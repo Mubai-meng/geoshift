@@ -300,7 +300,7 @@ fun SettingsScreen(
         "logs" -> ConfirmDialog("清除诊断日志", "确定清空所有诊断日志吗？", confirm = "清除", onDismiss = { confirm = null }) {
             vm.run("日志已清除") { store.clearLogs() }
         }
-        "all" -> ConfirmDialog("清除全部数据", "将停止模拟，并删除所有历史位置、路线、预设、环境记录和日志。此操作无法撤销。", confirm = "全部清除", danger = true,
+        "all" -> ConfirmDialog("清除全部数据", "将停止模拟，并删除所有收藏位置、路线、预设、环境记录和日志。此操作无法撤销。", confirm = "全部清除", danger = true,
             onDismiss = { confirm = null }) { vm.run("全部数据已清除") { clearAll() } }
     }
     text?.let { (title, body) ->

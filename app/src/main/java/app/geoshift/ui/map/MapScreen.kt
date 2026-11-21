@@ -1,5 +1,7 @@
 package app.geoshift.ui.map
 
+import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -55,6 +57,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -190,6 +193,18 @@ fun MapScreen(
                     throw t
                 }
             }
+        }
+    }
+
+    // Back closes what is open on the map before leaving the app: results, the picked point, then the
+    // route editor (twice when it holds points, so they are not lost by accident).
+    var backArmedAt by remember { mutableLongStateOf(0L) }
+    BackHandler(enabled = visible && (results.isNotEmpty() || selected != null || editing)) {
+        when {
+            results.isNotEmpty() -> { searchGeneration++; searching = false; results = emptyList(); focus.clearFocus() }
+            selected != null -> selected = null
+            draft.isEmpty() || SystemClock.elapsedRealtime() - backArmedAt < 2000 -> { editing = false; draft.clear() }
+            else -> { backArmedAt = SystemClock.elapsedRealtime(); vm.toast("再按一次返回将放弃本次路线编辑") }
         }
     }
 
@@ -331,7 +346,7 @@ fun MapScreen(
                             }
                         }
                         IconButton(onClick = clearSearchHistory, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Rounded.Close, "清除历史", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
+                            Icon(Icons.Rounded.Close, "清除搜索历史", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
                         }
                     }
                 }
@@ -567,11 +582,11 @@ fun MapScreen(
     saveDialog?.let { suggestion ->
         val p = selected
         InputDialog(
-            "添加到历史", initial = suggestion.ifEmpty { "未命名位置" }, label = "名称",
+            "收藏位置", initial = suggestion.ifEmpty { "未命名位置" }, label = "名称",
             hint = if (suggestion.isNotEmpty()) "名称建议：$suggestion" else null,
             onDismiss = { saveDialog = null },
         ) { name ->
-            if (p != null) vm.run<String>("位置已成功添加到历史记录") { savePlace(name, p, address) }
+            if (p != null) vm.run<String>("已收藏") { savePlace(name, p, address) }
         }
     }
     if (routeDialog) {

@@ -328,9 +328,10 @@ class Geoshift private constructor(context: Context) {
         // At the end, "continue" would stop again at once: play the route again from the start.
         if (!pause && r.routeFinished) { start(); return }
         val now = SystemClock.elapsedRealtime()
-        val anchor = r.anchor ?: return
-        val plan = plan(anchor.routeId) ?: return
+        val plan = r.anchor?.let { plan(it.routeId) } ?: return
+        // Read the anchor inside the update: the service may have just re-anchored it (speed change).
         store.updateRuntime {
+            val anchor = it.anchor?.takeIf { a -> a.routeId == plan.id } ?: return@updateRuntime it
             if (pause) it.copy(paused = true, speed = 0.0, anchor = anchor.copy(distance = plan.distanceAt(anchor, it.paused, now), at = now))
             else it.copy(paused = false, anchor = anchor.copy(at = now))
         }
@@ -365,13 +366,23 @@ class Geoshift private constructor(context: Context) {
                 traffic = if (s.trafficLights) a.traffic ?: SecureRandom().nextLong() else null)
         }
         val p = plan.live(a, false, now)
+        // Computed from a snapshot: a pause, repeat change or stop on another thread meanwhile wins,
+        // otherwise writing this stale anchor back would make the route jump.
+        val snapshot = anchor
+        fun Runtime.unchanged() = this.anchor == snapshot && enabled && routeMode && !paused
         if (p.finished) {
-            store.updateRuntime { it.copy(position = p.point, progress = 1.0, routeIndex = p.index, paused = true, speed = 0.0,
-                anchor = a.copy(distance = plan.total, at = now)) }
-            store.log("路线已完成，保持终点位置；可重新开始或停止。")
+            var done = false
+            store.updateRuntime {
+                if (!it.unchanged()) return@updateRuntime it
+                done = true
+                it.copy(position = p.point, progress = 1.0, routeIndex = p.index, paused = true, speed = 0.0,
+                    anchor = a.copy(distance = plan.total, at = now))
+            }
+            if (done) store.log("路线已完成，保持终点位置；可重新开始或停止。")
             return true
         }
         store.updateRuntime(persist = a !== anchor) {
+            if (!it.unchanged()) return@updateRuntime it
             it.copy(position = p.point, bearing = p.bearing, speed = plan.speedAt(a, p, now), progress = p.progress, routeIndex = p.index, anchor = a)
         }
         return true
@@ -533,7 +544,7 @@ class Geoshift private constructor(context: Context) {
         val wifi = e.wifi.firstOrNull { runCatching { Validate.wifi(it.ssid, it.bssid) }.isSuccess }
         store.updateRuntime {
             it.copy(position = e.position, mode = SimMode.POINT, cells = cells, cellEnabled = cells.isNotEmpty(), cellPresetId = "",
-                wifi = wifi?.let { w -> WifiSpec(w.ssid, w.bssid.lowercase(), w.rssi, w.frequency) }, wifiEnabled = wifi != null,
+                wifi = wifi?.let { w -> WifiSpec(w.ssid, w.bssid.lowercase(Locale.ROOT), w.rssi, w.frequency) }, wifiEnabled = wifi != null,
                 wifiPresetId = "", environmentName = e.name)
         }
         store.log("环境配置已载入：${e.name}")
