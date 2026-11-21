@@ -72,12 +72,14 @@ object OpenGeocoder {
     }
 
     fun reverse(p: LatLon): String {
-        // Nominatim allows one request per second.
-        synchronized(this) {
-            val wait = lastNominatim + 1100 - System.currentTimeMillis()
-            if (wait > 0) Thread.sleep(wait)
-            lastNominatim = System.currentTimeMillis()
+        // Nominatim allows one request per second; reserve the slot inside synchronized and sleep outside.
+        val wait = synchronized(this) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            val slot = maxOf(now, lastNominatim + 1100L)
+            lastNominatim = slot
+            slot - now
         }
+        if (wait > 0) Thread.sleep(wait)
         val json = runCatching {
             JSONObject(httpText(String.format(Locale.ROOT,
                 "https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=zh-CN,zh,en&lat=%.6f&lon=%.6f", p.lat, p.lon)))
@@ -133,6 +135,10 @@ class RoadRouter(private val amap: AmapSdk) {
         if (!profile.road) return waypoints
         // OSRM natively supports multi-waypoint routing in one HTTP round-trip.
         if (!amap.ready && waypoints.size > 2) {
+            val multiKey = "osrm-many|${profile.name}|" + waypoints.joinToString(";") {
+                String.format(Locale.ROOT, "%.6f,%.6f", it.lat, it.lon)
+            }
+            synchronized(cache) { cache[multiKey]?.let { return it } }
             val allCached = waypoints.zipWithNext().all { (a, b) ->
                 val k = String.format(Locale.ROOT, "osrm|%s|%.6f,%.6f|%.6f,%.6f", profile.name, a.lat, a.lon, b.lat, b.lon)
                 synchronized(cache) { cache.containsKey(k) }
@@ -143,6 +149,7 @@ class RoadRouter(private val amap: AmapSdk) {
                 path.add(waypoints.first())
                 for (p in road) if (Geo.distance(path.last(), p) > 0.5) path.add(p)
                 if (Geo.distance(path.last(), waypoints.last()) > 0.5) path.add(waypoints.last()) else path[path.lastIndex] = waypoints.last()
+                synchronized(cache) { cache[multiKey] = path }
                 return path
             }
         }
@@ -171,12 +178,14 @@ class RoadRouter(private val amap: AmapSdk) {
     }
 
     private fun viaAmap(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
-        // Personal AMap keys allow only a few requests per second.
-        synchronized(this) {
-            val wait = lastAmap + 350 - System.currentTimeMillis()
-            if (wait > 0) Thread.sleep(wait)
-            lastAmap = System.currentTimeMillis()
+        // Personal AMap keys allow only a few requests per second; reserve slot under lock, sleep outside.
+        val wait = synchronized(this) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            val slot = maxOf(now, lastAmap + 350L)
+            lastAmap = slot
+            slot - now
         }
+        if (wait > 0) Thread.sleep(wait)
         return amap.direction(profile, a, b)
     }
 

@@ -247,6 +247,7 @@ internal fun PreviewCard(
                     Text(
                         " · 距模拟位置 ${formatDistance(distance)}",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
                     )
                 }
             }
@@ -319,7 +320,7 @@ internal fun RouteEditorCard(
         // Five choices do not fit a narrow phone; let the row scroll instead of clipping.
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             RoadProfile.entries.forEach { p ->
-                FilterChip(selected = p == profile, onClick = { onProfile(p) }, label = { Text(p.label) })
+                FilterChip(selected = p == profile, onClick = { onProfile(p) }, label = { Text(p.label) }, shape = CircleShape)
             }
         }
         if (roadStatus != null) Text(

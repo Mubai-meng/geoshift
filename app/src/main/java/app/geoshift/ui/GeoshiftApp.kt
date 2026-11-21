@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
@@ -78,8 +79,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -119,7 +120,7 @@ private enum class Page { MAIN, WIFI, CELL, SETUP, AMAP_KEY }
 
 @Composable
 fun GeoshiftApp(vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -> Unit, onImport: () -> Unit) {
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
     val s = state
     val systemHaptic = LocalHapticFeedback.current
     val hapticsEnabled = s?.settings?.haptics ?: true
@@ -144,7 +145,7 @@ fun GeoshiftApp(vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (s == null) Splash() else Root(s, vm, onOpen, onExport, onImport)
         }
-        val frameworkHelp by vm.frameworkHelp.collectAsState()
+        val frameworkHelp by vm.frameworkHelp.collectAsStateWithLifecycle()
         if (frameworkHelp) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = vm::hideFrameworkHelp,
@@ -193,7 +194,7 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
     if (onboarding || !s.settings.privacyAccepted) {
         Box(Modifier.fillMaxSize()) {
             SetupScreen(s, vm, onOpen, onBack = null, onDone = { onboarding = false })
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
         }
         return
     }
@@ -206,19 +207,19 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
         when (current) {
             Page.WIFI -> Box(Modifier.fillMaxSize()) {
                 WifiScreen(s, vm, onBack = { page = Page.MAIN })
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
             }
             Page.CELL -> Box(Modifier.fillMaxSize()) {
                 CellScreen(s, vm, onBack = { page = Page.MAIN })
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
             }
             Page.SETUP -> Box(Modifier.fillMaxSize()) {
                 SetupScreen(s, vm, onOpen, onBack = { page = Page.MAIN }, onDone = { page = Page.MAIN })
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
             }
             Page.AMAP_KEY -> Box(Modifier.fillMaxSize()) {
                 AmapKeyScreen(s, vm, onBack = { page = Page.MAIN })
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
             }
             Page.MAIN -> {
                 val openSetup = { page = Page.SETUP }

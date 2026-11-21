@@ -69,15 +69,6 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
 
     fun refreshFramework() { _service.value?.let { _framework.value = describe(it) } }
 
-    /** Asks the framework to add packages to the module scope (the user confirms in its manager). */
-    fun requestScope(packages: List<String>, done: (String?) -> Unit) {
-        val s = _service.value ?: return done("未连接到 Xposed 框架")
-        s.requestScope(packages, object : XposedService.OnScopeEventListener {
-            override fun onScopeRequestApproved(approved: List<String>) { refreshFramework(); done(null) }
-            override fun onScopeRequestFailed(message: String) = done(message)
-        })
-    }
-
     fun bootAt(): Long = SimConfig.bootMoment(System.currentTimeMillis(), SystemClock.elapsedRealtime())
 
     /**

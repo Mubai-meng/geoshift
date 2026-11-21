@@ -3,6 +3,7 @@ package app.geoshift.xposed.system
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import app.geoshift.core.LatLon
 import app.geoshift.xposed.Bridge
 import app.geoshift.xposed.Contexts
@@ -23,6 +24,7 @@ import org.json.JSONObject
  */
 class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
     @Volatile private var cachedUid = -1
+    @Volatile private var uidCheckedAt = 0L
     private val FEATURE = Regex("[a-z_]{1,30}")
 
     fun install() {
@@ -47,11 +49,15 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
         }
     }
 
-    private fun ownUid(): Int {
-        if (cachedUid < 0) cachedUid = try {
-            Contexts.get()!!.packageManager.getApplicationInfo(Bridge.SELF, 0).uid
-        } catch (_: Throwable) {
-            return -2
+    private fun ownUid(refreshIfStale: Boolean = false): Int {
+        val now = SystemClock.elapsedRealtime()
+        if (cachedUid < 0 || (refreshIfStale && now - uidCheckedAt > 5_000L)) {
+            uidCheckedAt = now
+            cachedUid = try {
+                Contexts.get()!!.packageManager.getApplicationInfo(Bridge.SELF, 0).uid
+            } catch (_: Throwable) {
+                return -2
+            }
         }
         return cachedUid
     }
@@ -63,7 +69,7 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
             hooks.before(m) { call ->
                 if (call.args.size < 3 || call.args[0] != Bridge.COMMAND) return@before
                 val uid = Binder.getCallingUid()
-                val own = uid == ownUid()
+                val own = uid == ownUid() || (uid >= 10000 && uid == ownUid(refreshIfStale = true))
                 if (!own && uid >= 10000) return@before // Stock behaviour for everyone else.
                 call.thisObject?.let { location.attachService(it) }
                 call.result = if (call.returnType == java.lang.Boolean.TYPE) true else null

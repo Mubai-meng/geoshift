@@ -17,35 +17,39 @@ import java.util.concurrent.ConcurrentHashMap
  * 10000) are never "chosen". Works in any hooked process with a Context for the package manager.
  */
 object AppScope {
-    private val uidCache = ConcurrentHashMap<Int, Boolean>()
-    @Volatile private var cachedFor: List<String> = emptyList()
-    @Volatile private var cacheAt = 0L
+    private class Cache(val packages: List<String>, val set: Set<String>, val at: Long) {
+        val uids = ConcurrentHashMap<Int, Boolean>()
+    }
+
+    @Volatile private var cache = Cache(emptyList(), emptySet(), 0L)
     /** Uids are reused after an uninstall, so answers are refreshed now and then. */
     private const val CACHE_MS = 60_000L
+
+    private fun current(c: SimConfig): Cache {
+        val now = SystemClock.elapsedRealtime()
+        val cur = cache
+        if (cur.packages === c.packages && now - cur.at <= CACHE_MS) return cur
+        return Cache(c.packages, c.packages.toHashSet(), now).also { cache = it }
+    }
 
     /** Whether the simulation applies to [uid]. An unknown owner (uid < 0) is not chosen. */
     fun covers(c: SimConfig, uid: Int): Boolean = !c.selectedOnly || (uid >= 0 && listed(c, uid))
 
-    fun listed(c: SimConfig, packageName: String?) = packageName != null && packageName in c.packages
+    fun listed(c: SimConfig, packageName: String?) = packageName != null && packageName in current(c).set
 
     fun listed(c: SimConfig, uid: Int): Boolean {
         if (uid < 10000 || c.packages.isEmpty()) return false
-        val now = SystemClock.elapsedRealtime()
-        if (cachedFor !== c.packages || now - cacheAt > CACHE_MS) {
-            uidCache.clear()
-            cachedFor = c.packages
-            cacheAt = now
-        }
-        uidCache[uid]?.let { return it }
+        val cur = current(c)
+        cur.uids[uid]?.let { return it }
         val ctx = Contexts.get() ?: return false // Unknown yet: do not cache.
         val result = try {
             val pm = ctx.packageManager
             val names = pm.getPackagesForUid(uid) ?: pm.getPackagesForUid(uid % 100000)
-            names?.any { it in c.packages } == true
+            names?.any { it in cur.set } == true
         } catch (_: Throwable) {
             false
         }
-        uidCache[uid] = result
+        cur.uids[uid] = result
         return result
     }
 }

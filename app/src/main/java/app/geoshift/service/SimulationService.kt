@@ -10,8 +10,8 @@ import android.content.Intent
 import android.location.LocationManager
 import android.location.provider.ProviderProperties
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
-import android.os.Looper
 import android.os.SystemClock
 import app.geoshift.MainActivity
 import app.geoshift.core.Clock
@@ -27,15 +27,18 @@ import app.geoshift.data.positionName
  * this only keeps the app's view current and shows the "stop" notification.
  */
 class SimulationService : Service() {
-    private val clock = Handler(Looper.getMainLooper())
+    private lateinit var workerThread: HandlerThread
+    private lateinit var clock: Handler
     private val ticker = Runnable { tick() }
     private lateinit var engine: Geoshift
     private var manager: LocationManager? = null
-    private var providers = false
+    @Volatile private var providers = false
     private var shownText: String? = null
 
     override fun onCreate() {
         super.onCreate()
+        workerThread = HandlerThread("geoshift-sim").apply { start() }
+        clock = Handler(workerThread.looper)
         engine = Geoshift.get(this)
         manager = getSystemService(LOCATION_SERVICE) as LocationManager
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
@@ -60,15 +63,17 @@ class SimulationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, id: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            engine.stop()
+            clock.post { engine.stop() }
             return START_NOT_STICKY
         }
-        try {
-            engine.ensureReady()
-            if (engine.store.settings.value.backend == Backend.MOCK && !providers) installProviders()
-            emitNow()
-        } catch (e: Exception) {
-            fail(e)
+        clock.post {
+            try {
+                engine.ensureReady()
+                if (engine.store.settings.value.backend == Backend.MOCK && !providers) installProviders()
+                emitNow()
+            } catch (e: Exception) {
+                fail(e)
+            }
         }
         return START_NOT_STICKY
     }
@@ -76,6 +81,7 @@ class SimulationService : Service() {
     override fun onDestroy() {
         if (running === this) running = null
         clock.removeCallbacksAndMessages(null)
+        workerThread.quitSafely()
         removeProviders()
         // With Xposed, system_server keeps simulating on its own; some ROMs destroy the service when
         // the task is swiped away, and that must not end the simulation. Only the mock backend stops
@@ -171,7 +177,6 @@ class SimulationService : Service() {
         private const val CHANNEL = "geoshift_location"
         private const val ACTION_STOP = "STOP"
         private val PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        private val MAIN = Handler(Looper.getMainLooper())
         @Volatile private var running: SimulationService? = null
 
         fun start(c: Context) { c.startForegroundService(Intent(c, SimulationService::class.java)) }
@@ -189,6 +194,6 @@ class SimulationService : Service() {
         }
         fun stop(c: Context) { c.stopService(Intent(c, SimulationService::class.java)) }
         /** The position or state changed: report it now instead of at the next tick. */
-        fun nudge() { MAIN.post { running?.emitNow() } }
+        fun nudge() { running?.let { svc -> svc.clock.post { svc.emitNow() } } }
     }
 }

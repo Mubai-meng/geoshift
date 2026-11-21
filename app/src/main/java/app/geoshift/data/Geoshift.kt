@@ -209,7 +209,7 @@ class Geoshift private constructor(context: Context) {
     /** Quick, non-blocking refresh of [realPosition] from the system's last fixes; only while not simulating. */
     @SuppressLint("MissingPermission")
     fun refreshRealPosition() {
-        if (running || !capabilities().preciseLocation) return
+        if (running || app.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         val lm = app.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
         val best = runCatching { lm.getProviders(true) }.getOrDefault(emptyList())
             .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
@@ -225,7 +225,7 @@ class Geoshift private constructor(context: Context) {
      */
     @SuppressLint("MissingPermission")
     fun deviceLocation(): LatLon {
-        if (!capabilities().preciseLocation) fail("请先授予精确位置权限。")
+        if (app.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) fail("请先授予精确位置权限。")
         if (running) fail("请先停止模拟，再获取原始位置。")
         val lm = app.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val providers = buildList {
@@ -393,7 +393,7 @@ class Geoshift private constructor(context: Context) {
             val r = store.runtime.value
             if (r.enabled && r.routeMode) fail("路线运行时请先停止路线，再使用摇杆。")
             ensureReady()
-            if (!capabilities().overlay) fail("请先在系统设置中允许显示悬浮窗。")
+            if (!canDrawOverlays(app)) fail("请先在系统设置中允许显示悬浮窗。")
         }
         JoystickService.command(app, enabled)
     }

@@ -118,6 +118,8 @@ class CallbackHooks(private val hooks: Hooker, private val loader: ClassLoader, 
         val type = Reflect.classOrNull("android.location.IGnssNmeaListener\$Stub\$Proxy", loader)
         val n = hooks.declared(type, "onNmeaReceived") { m ->
             hooks.around(m, before = { call ->
+                // Clear any leftover sentences if a previous proceed() threw and skipped after().
+                more.remove()
                 val c = forOwner(locationConfig(), call.thisObject) ?: return@around
                 val text = call.args.indexOfLast { it is String }
                 // NMEA carries the real position: swap each sentence for the simulated one.
@@ -126,13 +128,14 @@ class CallbackHooks(private val hooks: Hooker, private val loader: ClassLoader, 
                 } catch (_: Throwable) { emptyList() }
                 if (fake.isEmpty()) { call.drop(); return@around }
                 call.args[text] = fake[0]
-                more.set(fake.drop(1))
+                if (fake.size > 1) more.set(fake.drop(1))
                 hit("NMEA")
             }, after = { call ->
                 // Simulated GSV parts the real chip never sent, one callback each like real sentences.
                 val extra = more.get() ?: return@around
                 more.remove()
                 val text = call.args.indexOfLast { it is String }
+                if (text < 0) return@around
                 for (sentence in extra) {
                     val args = call.args.clone()
                     args[text] = sentence

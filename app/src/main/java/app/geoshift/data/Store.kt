@@ -45,8 +45,12 @@ private class JsonFile<T>(dir: File, name: String, private val serializer: KSeri
 /** A list of records with its file. */
 class RecordList<T : Record> internal constructor(dir: File, name: String, serializer: KSerializer<T>) {
     private val file = JsonFile(dir, name, ListSerializer(serializer)) { emptyList() }
-    private val flow = MutableStateFlow(file.read())
+    private val flow = MutableStateFlow<List<T>>(emptyList())
     val items: StateFlow<List<T>> = flow.asStateFlow()
+
+    @Synchronized internal fun loadFromDisk() {
+        flow.value = file.read()
+    }
 
     fun find(id: String): T = flow.value.firstOrNull { it.id == id } ?: fail("记录不存在，可能已经删除。")
 
@@ -87,15 +91,11 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
  * kept in memory and saved only on important changes (a playing route changes it every second).
  */
 class Store(context: Context) {
-    private val dir = File(context.filesDir, "store").apply { mkdirs() }
+    private val dir = File(context.filesDir, "store")
 
     private val settingsFile = JsonFile(dir, "settings.json", Settings.serializer()) { Settings() }
     private val runtimeFile = JsonFile(dir, "runtime.json", Runtime.serializer()) { Runtime() }
     private val logFile = JsonFile(dir, "log.json", ListSerializer(LogEntry.serializer())) { emptyList() }
-    init {
-        // The AMap Web service key (3.1.0 and earlier) is no longer used.
-        File(dir, "map-key.json").delete()
-    }
 
     /** AMap Android (SDK) key: official map, search and routes. Kept apart from settings so it never ends up in an export. */
     private val sdkKeyFile = JsonFile(dir, "amap-sdk-key.json", kotlinx.serialization.serializer<String>()) { "" }
@@ -103,21 +103,24 @@ class Store(context: Context) {
     /** Optional custom-map-style id made in the AMap console; applied to the official map when set. */
     private val sdkStyleIdFile = JsonFile(dir, "amap-style-id.json", kotlinx.serialization.serializer<String>()) { "" }
 
-    private val _settings = MutableStateFlow(settingsFile.read())
+    private val _ready = MutableStateFlow(false)
+    /** Becomes true once initial disk files have finished loading off the main thread. */
+    val ready: StateFlow<Boolean> = _ready.asStateFlow()
+
+    private val _settings = MutableStateFlow(Settings())
     val settings: StateFlow<Settings> = _settings.asStateFlow()
 
     // Nothing keeps running across a process restart; presets stay selected but switched off.
-    private val _runtime = MutableStateFlow(runtimeFile.read().copy(enabled = false, paused = false, joystick = false,
-        wifiEnabled = false, cellEnabled = false, error = "", speed = 0.0, anchor = null))
+    private val _runtime = MutableStateFlow(Runtime())
     val runtime: StateFlow<Runtime> = _runtime.asStateFlow()
 
-    private val _logs = MutableStateFlow(logFile.read())
+    private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
 
-    private val _sdkKey = MutableStateFlow(sdkKeyFile.read())
+    private val _sdkKey = MutableStateFlow("")
     val sdkKey: StateFlow<String> = _sdkKey.asStateFlow()
 
-    private val _sdkStyleId = MutableStateFlow(sdkStyleIdFile.read())
+    private val _sdkStyleId = MutableStateFlow("")
     val sdkStyleId: StateFlow<String> = _sdkStyleId.asStateFlow()
 
     val places = RecordList(dir, "places.json", SavedPlace.serializer())
@@ -125,6 +128,31 @@ class Store(context: Context) {
     val wifiPresets = RecordList(dir, "wifi.json", WifiPreset.serializer())
     val cellPresets = RecordList(dir, "cells.json", CellPreset.serializer())
     val environments = RecordList(dir, "environments.json", EnvironmentRecord.serializer())
+
+    init {
+        // Load all 10 JSON files on the single ordered disk thread so Application.onCreate never blocks on IO.
+        diskWriter.execute {
+            dir.mkdirs()
+            // The AMap Web service key (3.1.0 and earlier) is no longer used.
+            File(dir, "map-key.json").delete()
+            synchronized(this) {
+                _settings.value = settingsFile.read()
+                _runtime.value = runtimeFile.read().copy(
+                    enabled = false, paused = false, joystick = false,
+                    wifiEnabled = false, cellEnabled = false, error = "", speed = 0.0, anchor = null,
+                )
+                _logs.value = logFile.read()
+                _sdkKey.value = sdkKeyFile.read()
+                _sdkStyleId.value = sdkStyleIdFile.read()
+            }
+            places.loadFromDisk()
+            routes.loadFromDisk()
+            wifiPresets.loadFromDisk()
+            cellPresets.loadFromDisk()
+            environments.loadFromDisk()
+            _ready.value = true
+        }
+    }
 
     @Synchronized fun updateSettings(change: (Settings) -> Settings): Settings {
         val next = change(_settings.value)

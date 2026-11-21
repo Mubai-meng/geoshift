@@ -5,6 +5,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -32,9 +34,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +62,7 @@ import app.geoshift.ui.theme.palette
 internal fun MapTip(onSwitch: () -> Unit, onKey: () -> Unit, onClose: () -> Unit) {
     val link = MaterialTheme.typography.labelMedium
     Box(Modifier.padding(top = 8.dp).glass(CircleShape)) {
-        Row(Modifier.padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("地图不显示？", style = link, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 "换个图层", style = link, color = MaterialTheme.colorScheme.primary,
@@ -199,16 +204,68 @@ internal fun MapCompass(
     val totalHeading = (deviceHeading?.toDouble() ?: 0.0) + bearing
     val signed = signedBearing(totalHeading)
     // Unwrapped needle angle: crossing north (359° → 1°) turns 2°, not a full circle.
-    val needle = remember { floatArrayOf(0f) }
-    val delta = ((-signed - needle[0]) % 360.0 + 540.0) % 360.0 - 180.0
-    needle[0] += delta.toFloat()
+    var needleTarget by remember { mutableFloatStateOf((-signed).toFloat()) }
+    SideEffect {
+        val delta = ((-signed - needleTarget) % 360.0 + 540.0) % 360.0 - 180.0
+        needleTarget += delta.toFloat()
+    }
     val animatedBearing by animateFloatAsState(
-        targetValue = needle[0],
+        targetValue = needleTarget,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "compass",
     )
     val tickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
     val cardinalColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+    val dialModifier = remember(tickColor, cardinalColor) {
+        Modifier.drawWithCache {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val outerR = size.width * 0.47f
+            val halfW = size.width * 0.135f
+            val len = size.height * 0.34f
+
+            val ticks = List(12) { i ->
+                val angleRad = Math.toRadians((i * 30.0) - 90.0)
+                val isCardinal = i % 3 == 0
+                val innerTickR = outerR * (if (isCardinal) 0.80f else 0.87f)
+                val cosA = kotlin.math.cos(angleRad).toFloat()
+                val sinA = kotlin.math.sin(angleRad).toFloat()
+                Triple(
+                    Offset(cx + innerTickR * cosA, cy + innerTickR * sinA),
+                    Offset(cx + outerR * cosA, cy + outerR * sinA),
+                    isCardinal,
+                )
+            }
+            val northLeft = Path().apply { moveTo(cx, cy - len); lineTo(cx - halfW, cy); lineTo(cx, cy); close() }
+            val northRight = Path().apply { moveTo(cx, cy - len); lineTo(cx + halfW, cy); lineTo(cx, cy); close() }
+            val southLeft = Path().apply { moveTo(cx, cy + len); lineTo(cx - halfW, cy); lineTo(cx, cy); close() }
+            val southRight = Path().apply { moveTo(cx, cy + len); lineTo(cx + halfW, cy); lineTo(cx, cy); close() }
+            val cardinalStroke = size.width * 0.045f
+            val minorStroke = size.width * 0.03f
+            val center = Offset(cx, cy)
+
+            onDrawBehind {
+                ticks.forEachIndexed { i, (start, end, isCardinal) ->
+                    drawLine(
+                        color = when {
+                            i == 0 -> Color(0xFFDC3545)
+                            isCardinal -> cardinalColor
+                            else -> tickColor
+                        },
+                        start = start,
+                        end = end,
+                        strokeWidth = if (isCardinal) cardinalStroke else minorStroke,
+                    )
+                }
+                drawPath(northLeft, color = Color(0xFFDC3545))
+                drawPath(northRight, color = Color(0xFFFF5252))
+                drawPath(southLeft, color = Color(0xFF8A93A6))
+                drawPath(southRight, color = Color(0xFFBCC5D4))
+                drawCircle(color = Color.White, radius = halfW * 0.65f, center = center)
+                drawCircle(color = Color(0xFF1E2330), radius = halfW * 0.36f, center = center)
+            }
+        }
+    }
 
     Surface(
         onClick = {
@@ -224,54 +281,7 @@ internal fun MapCompass(
                 modifier = Modifier
                     .size(36.dp)
                     .graphicsLayer { rotationZ = animatedBearing }
-                    .drawWithCache {
-                        val cx = size.width / 2f
-                        val cy = size.height / 2f
-                        val outerR = size.width * 0.47f
-                        val halfW = size.width * 0.135f
-                        val len = size.height * 0.34f
-
-                        val ticks = List(12) { i ->
-                            val angleRad = Math.toRadians((i * 30.0) - 90.0)
-                            val isCardinal = i % 3 == 0
-                            val innerTickR = outerR * (if (isCardinal) 0.80f else 0.87f)
-                            val cosA = kotlin.math.cos(angleRad).toFloat()
-                            val sinA = kotlin.math.sin(angleRad).toFloat()
-                            Triple(
-                                Offset(cx + innerTickR * cosA, cy + innerTickR * sinA),
-                                Offset(cx + outerR * cosA, cy + outerR * sinA),
-                                isCardinal,
-                            )
-                        }
-                        val northLeft = Path().apply { moveTo(cx, cy - len); lineTo(cx - halfW, cy); lineTo(cx, cy); close() }
-                        val northRight = Path().apply { moveTo(cx, cy - len); lineTo(cx + halfW, cy); lineTo(cx, cy); close() }
-                        val southLeft = Path().apply { moveTo(cx, cy + len); lineTo(cx - halfW, cy); lineTo(cx, cy); close() }
-                        val southRight = Path().apply { moveTo(cx, cy + len); lineTo(cx + halfW, cy); lineTo(cx, cy); close() }
-                        val cardinalStroke = size.width * 0.045f
-                        val minorStroke = size.width * 0.03f
-                        val center = Offset(cx, cy)
-
-                        onDrawBehind {
-                            ticks.forEachIndexed { i, (start, end, isCardinal) ->
-                                drawLine(
-                                    color = when {
-                                        i == 0 -> Color(0xFFDC3545)
-                                        isCardinal -> cardinalColor
-                                        else -> tickColor
-                                    },
-                                    start = start,
-                                    end = end,
-                                    strokeWidth = if (isCardinal) cardinalStroke else minorStroke,
-                                )
-                            }
-                            drawPath(northLeft, color = Color(0xFFDC3545))
-                            drawPath(northRight, color = Color(0xFFFF5252))
-                            drawPath(southLeft, color = Color(0xFF8A93A6))
-                            drawPath(southRight, color = Color(0xFFBCC5D4))
-                            drawCircle(color = Color.White, radius = halfW * 0.65f, center = center)
-                            drawCircle(color = Color(0xFF1E2330), radius = halfW * 0.36f, center = center)
-                        }
-                    },
+                    .then(dialModifier),
             )
         }
     }

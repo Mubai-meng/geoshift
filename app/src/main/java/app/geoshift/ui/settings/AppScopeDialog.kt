@@ -9,10 +9,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
@@ -54,26 +58,27 @@ private data class AppEntry(val label: String, val pkg: String)
 fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, onSave: (String, List<String>) -> Unit) {
     val context = LocalContext.current
     var mode by remember { mutableStateOf(scope) }
-    val picked = remember { mutableStateListOf<String>().apply { addAll(chosen) } }
+    val picked = remember { mutableStateOf(chosen.toSet()) }
     var query by remember { mutableStateOf("") }
     var onlySelected by remember { mutableStateOf(false) }
     var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
+            val chosenSet = chosen.toHashSet()
             val pm = context.packageManager
             val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             pm.queryIntentActivities(launcher, 0)
                 .map { AppEntry(it.loadLabel(pm).toString(), it.activityInfo.packageName) }
                 .filter { it.pkg != context.packageName }
                 .distinctBy { it.pkg }
-                .sortedWith(compareBy({ it.pkg !in chosen }, { it.label.lowercase() }))
+                .sortedWith(compareBy({ it.pkg !in chosenSet }, { it.label.lowercase() }))
         }
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp)) {
                 Text("模拟范围", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
                 ScopeOption("所有应用", "所有应用都看到模拟的位置、Wi-Fi、基站和卫星", mode == "all") { mode = "all" }
@@ -87,7 +92,7 @@ fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, o
                 OutlinedTextField(
                     value = query, onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text("搜索应用名或包名（已选 ${picked.size} 个）") },
+                    label = { Text("搜索应用名或包名（已选 ${picked.value.size} 个）") },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "清除") }
@@ -106,10 +111,13 @@ fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, o
                         Text("正在读取应用列表…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    val q = query.trim().lowercase()
-                    val filtered = list.filter {
-                        (q.isEmpty() || q in it.label.lowercase() || q in it.pkg.lowercase()) &&
-                                (!onlySelected || it.pkg in picked)
+                    val pickedSet = picked.value
+                    val filtered = remember(list, query, onlySelected, pickedSet) {
+                        val q = query.trim().lowercase()
+                        list.filter {
+                            (q.isEmpty() || q in it.label.lowercase() || q in it.pkg.lowercase()) &&
+                                (!onlySelected || it.pkg in pickedSet)
+                        }
                     }
                     Row(
                         Modifier.fillMaxWidth().padding(bottom = 6.dp),
@@ -119,22 +127,23 @@ fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, o
                         FilterChip(
                             selected = onlySelected,
                             onClick = { onlySelected = !onlySelected },
-                            label = { Text("仅看已选 (${picked.size})") },
+                            shape = CircleShape,
+                            label = { Text("仅看已选 (${pickedSet.size})") },
                         )
                         TextButton(onClick = {
-                            filtered.forEach { if (it.pkg !in picked) picked.add(it.pkg) }
+                            picked.value = pickedSet + filtered.map { it.pkg }
                         }) { Text("全选当前") }
-                        TextButton(onClick = { picked.clear() }) { Text("清空") }
+                        TextButton(onClick = { picked.value = emptySet() }) { Text("清空") }
                     }
                     LazyColumn(Modifier.weight(1f)) {
                         items(filtered, key = { it.pkg }) { app ->
-                            val on = app.pkg in picked
+                            val on = app.pkg in pickedSet
                             Row(
-                                Modifier.fillMaxWidth().clickable { if (on) picked.remove(app.pkg) else picked.add(app.pkg) }
+                                Modifier.fillMaxWidth().clickable { picked.value = if (on) pickedSet - app.pkg else pickedSet + app.pkg }
                                     .padding(vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Checkbox(on, onCheckedChange = { if (it) picked.add(app.pkg) else picked.remove(app.pkg) })
+                                Checkbox(on, onCheckedChange = { picked.value = if (it) pickedSet + app.pkg else pickedSet - app.pkg })
                                 Column(Modifier.weight(1f)) {
                                     Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(app.pkg, style = MaterialTheme.typography.bodySmall, maxLines = 1,
@@ -147,8 +156,8 @@ fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, o
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("取消") }
                     Button(
-                        onClick = { onSave(mode, picked.toList()) },
-                        enabled = mode == "all" || picked.isNotEmpty(),
+                        onClick = { onSave(mode, picked.value.toList()) },
+                        enabled = mode == "all" || picked.value.isNotEmpty(),
                     ) { Text("保存") }
                 }
             }

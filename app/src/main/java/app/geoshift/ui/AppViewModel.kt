@@ -14,6 +14,7 @@ import app.geoshift.data.SavedPlace
 import app.geoshift.data.SavedRoute
 import app.geoshift.data.Settings
 import app.geoshift.data.WifiPreset
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -73,11 +75,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                           val cells: List<CellPreset>, val environments: List<EnvironmentRecord>)
 
     val state: StateFlow<AppState?> = combine(
+        store.ready,
         combine(store.settings, store.runtime, engine.caps, ::Triple),
         records,
         combine(store.logs, engine.bridge.reports, store.sdkKey, ::Triple),
-    ) { (settings, runtime, caps), r, (logs, reports, sdkKey) ->
-        AppState(Geoshift.VERSION, settings, runtime, caps, r.places, r.routes, r.wifi, r.cells, r.environments, logs, reports,
+    ) { ready, (settings, runtime, caps), r, (logs, reports, sdkKey) ->
+        if (!ready) null
+        else AppState(Geoshift.VERSION, settings, runtime, caps, r.places, r.routes, r.wifi, r.cells, r.environments, logs, reports,
             sdkKey.isNotEmpty())
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -93,19 +97,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun showFrameworkHelp() { _frameworkHelp.value = true }
     fun hideFrameworkHelp() { _frameworkHelp.value = false }
 
-    @Volatile var foreground = true
+    private val _foreground = MutableStateFlow(true)
+    var foreground: Boolean
+        get() = _foreground.value
+        set(value) { _foreground.value = value }
 
     init {
-        // Permissions and the module's state change outside the app; check them while it is open.
-        // Ping system_server at a gentler cadence than local permission checks to save Binder IPC.
+        // Permissions and the module's state change outside the app; suspend completely in background.
         viewModelScope.launch(Dispatchers.IO) {
-            var tick = 0
-            while (isActive) {
-                if (foreground) {
+            _foreground.collectLatest { visible ->
+                if (!visible) return@collectLatest
+                var tick = 0
+                while (isActive) {
                     runCatching { engine.capabilities(includePing = tick % 2 == 0) }
                     tick++
+                    delay(3000)
                 }
-                delay(3000)
             }
         }
     }
@@ -115,23 +122,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun toast(message: String) { _messages.tryEmit(message) }
 
     /**
-     * Runs an operation off the main thread. Shows [success] or the error; [onDone] gets the result
-     * on the main thread.
+     * Runs an operation off the main thread. Shows [success] or the error; [onDone] / [onError] run
+     * on the main thread. Set [refresh] only when the action may alter capabilities/module state.
      */
-    fun <T> run(success: String? = null, onDone: ((T) -> Unit)? = null, block: Geoshift.() -> T) {
+    fun <T> run(
+        success: String? = null,
+        refresh: Boolean = false,
+        onDone: ((T) -> Unit)? = null,
+        onError: (() -> Unit)? = null,
+        block: Geoshift.() -> T,
+    ) {
         viewModelScope.launch {
             if (busyCount.incrementAndGet() > 0) _busy.value = true
             try {
                 val result = withContext(Dispatchers.IO) { engine.block() }
                 success?.let { _messages.emit(it) }
                 onDone?.invoke(result)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Throwable) {
+                onError?.invoke()
                 val message = e.message ?: e.javaClass.simpleName
                 _messages.emit(message)
                 withContext(Dispatchers.IO) { store.log(message) }
             } finally {
                 if (busyCount.decrementAndGet() <= 0) _busy.value = false
-                refresh()
+                if (refresh) refresh()
             }
         }
     }

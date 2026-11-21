@@ -96,7 +96,9 @@ import app.geoshift.ui.theme.LiveEnd
 import app.geoshift.ui.theme.LiveStart
 import app.geoshift.ui.theme.Warning
 import app.geoshift.ui.theme.palette
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import app.geoshift.core.Repeat
 
@@ -136,8 +138,10 @@ fun MockScreen(
 
     LaunchedEffect(r.position, s.settings.privacyAccepted) {
         if (s.settings.privacyAccepted && (!r.enabled || !r.routeMode)) {
+            val target = r.position
             delay(500)
-            vm.run<String>(onDone = { currentAddress = it }) { reverseGeocode(r.position) }
+            val resolved = withContext(Dispatchers.IO) { vm.engine.reverseGeocodeSuspend(target) }
+            if (vm.state.value?.runtime?.position == target) currentAddress = resolved
         }
     }
 
@@ -456,7 +460,6 @@ private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
             }
             IosSwitch(st.trafficLights, { on -> vm.run { updateSettings { it.copy(trafficLights = on) } } })
         }
-        Spacer(Modifier.size(8.dp))
         Spacer(Modifier.size(8.dp))
         Text("走到终点后", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.size(4.dp))

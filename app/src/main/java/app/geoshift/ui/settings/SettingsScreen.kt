@@ -343,6 +343,7 @@ private fun NumberSettingDialog(
                         val isSelected = parsed != null && kotlin.math.abs(parsed - preset) < 0.001
                         FilterChip(
                             selected = isSelected,
+                            shape = androidx.compose.foundation.shape.CircleShape,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 textValue = if (setting.isInteger) preset.toInt().toString() else formatNumber(preset)
@@ -389,7 +390,7 @@ private fun NumberSettingDialog(
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 val curr = textValue.toDoubleOrNull() ?: setting.defaultVal
                                 val step = if (setting.isInteger) 100.0 else if (setting.key == "speedMultiplier") 0.5 else 1.0
-                                val next = (curr - step).coerceAtLeast(if (setting.key == "speedMultiplier") 0.01 else 0.0)
+                                val next = (curr - step).coerceIn(setting.min, setting.max)
                                 textValue = if (setting.isInteger) next.toInt().toString() else formatNumber(next)
                             }) {
                                 Icon(Icons.Rounded.Remove, "减少")
@@ -398,7 +399,7 @@ private fun NumberSettingDialog(
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 val curr = textValue.toDoubleOrNull() ?: setting.defaultVal
                                 val step = if (setting.isInteger) 100.0 else if (setting.key == "speedMultiplier") 0.5 else 1.0
-                                val next = curr + step
+                                val next = (curr + step).coerceIn(setting.min, setting.max)
                                 textValue = if (setting.isInteger) next.toInt().toString() else formatNumber(next)
                             }) {
                                 Icon(Icons.Rounded.Add, "增加")
@@ -459,9 +460,9 @@ const val HELP = """1. 首次使用：同意使用须知，授予精确位置权
 
 4. 选点：在地图上点击或长按选点，也可以在搜索框输入地名或「纬度, 经度」。
 
-5. 路线：点地图右侧路线按钮，依次点击地图添加途经点，可选择沿道路步行、骑行或驾车。保存后在「控制台」或「收藏 · 路线」出发；行进中可暂停、继续，Geoshift 在后台被冻结也会继续走。
+5. 路线：点地图左侧路线按钮，依次点击地图添加途经点，可选择沿道路步行、骑行或驾车。保存后在「控制台」或「收藏 · 路线」出发；行进中可暂停、继续，Geoshift 在后台被冻结也会继续走。
 
-6. 摇杆：在地图右侧或「控制台」打开摇杆悬浮窗（需要悬浮窗权限），按住内圈推杆持续移动模拟位置，按住外圈或长按中心可自由拖动悬浮窗位置。
+6. 摇杆：在地图左侧或「控制台」打开摇杆悬浮窗（需要悬浮窗权限），按住内圈推杆持续移动模拟位置，按住外圈或长按中心可自由拖动悬浮窗位置。
 
 7. 环境记录：在「控制台」记录当前环境，会保存手机此刻真实扫描到的基站与 Wi-Fi，之后可在「收藏 · 环境」载入。"""
 

@@ -70,9 +70,11 @@ import androidx.compose.ui.unit.sp
 import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.Success
 import app.geoshift.ui.theme.Warning
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /** Inset grouped card: rounded, subtle border, on the background. */
 @Composable
@@ -457,8 +459,13 @@ fun InputDialog(
     )
 }
 
-fun formatTime(time: Long, pattern: String = "yyyy-MM-dd HH:mm"): String =
-    if (time <= 0) "" else SimpleDateFormat(pattern, Locale.CHINA).format(Date(time))
+private val timeFormatters = ConcurrentHashMap<String, DateTimeFormatter>()
+
+fun formatTime(time: Long, pattern: String = "yyyy-MM-dd HH:mm"): String {
+    if (time <= 0) return ""
+    val fmt = timeFormatters.getOrPut(pattern) { DateTimeFormatter.ofPattern(pattern, Locale.CHINA) }
+    return Instant.ofEpochMilli(time).atZone(ZoneId.systemDefault()).format(fmt)
+}
 
 fun formatCoord(lat: Double, lon: Double) = String.format(Locale.ROOT, "%.6f, %.6f", lat, lon)
 

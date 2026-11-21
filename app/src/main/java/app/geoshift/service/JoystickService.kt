@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
@@ -38,6 +39,8 @@ import kotlin.math.min
  */
 class JoystickService : Service() {
     private val handler = Handler(Looper.getMainLooper())
+    private lateinit var workerThread: HandlerThread
+    private lateinit var worker: Handler
     private val move = Runnable { step() }
     private lateinit var engine: Geoshift
     private var windows: WindowManager? = null
@@ -52,6 +55,8 @@ class JoystickService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        workerThread = HandlerThread("geoshift-joystick").apply { start() }
+        worker = Handler(workerThread.looper)
         engine = Geoshift.get(this)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .createNotificationChannel(NotificationChannel(CHANNEL, "摇杆悬浮窗", NotificationManager.IMPORTANCE_LOW))
@@ -68,15 +73,24 @@ class JoystickService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, id: Int): Int {
         if (intent?.action == ACTION_CLOSE) { stopSelf(); return START_NOT_STICKY }
-        try {
-            engine.ensureReady()
-            if (!Settings.canDrawOverlays(this)) throw Exception("尚未授予悬浮窗权限。")
-            if (stick == null) show()
-            engine.store.updateRuntime(persist = false) { it.copy(joystick = true) }
-        } catch (e: Exception) {
-            engine.store.updateRuntime(persist = false) { it.copy(joystick = false, error = e.message.orEmpty()) }
-            engine.store.log("悬浮窗：${e.message}")
+        if (!Settings.canDrawOverlays(this)) {
+            engine.store.updateRuntime(persist = false) { it.copy(joystick = false, error = "尚未授予悬浮窗权限。") }
+            engine.store.log("悬浮窗：尚未授予悬浮窗权限。")
             stopSelf()
+            return START_NOT_STICKY
+        }
+        worker.post {
+            try {
+                engine.ensureReady()
+                handler.post {
+                    if (stick == null) show()
+                    engine.store.updateRuntime(persist = false) { it.copy(joystick = true) }
+                }
+            } catch (e: Exception) {
+                engine.store.updateRuntime(persist = false) { it.copy(joystick = false, error = e.message.orEmpty()) }
+                engine.store.log("悬浮窗：${e.message}")
+                handler.post { stopSelf() }
+            }
         }
         return START_NOT_STICKY
     }
@@ -130,7 +144,7 @@ class JoystickService : Service() {
         }
         if (moving) {
             moving = false
-            runCatching { engine.joystickStep(0.0, 0.0, 0.0) }
+            worker.post { runCatching { engine.joystickStep(0.0, 0.0, 0.0) } }
         }
     }
 
@@ -182,26 +196,29 @@ class JoystickService : Service() {
     /** Moves the point by one step of travel in the joystick direction (runs only while deflected). */
     private fun step() {
         if (stick == null || !stepping) return
-        try {
-            val length = hypot(dx, dy).toDouble()
-            if (length > 0.1) {
-                val heading = Geo.normalizeBearing(Math.toDegrees(atan2(dx.toDouble(), (-dy).toDouble())))
-                val metres = engine.store.settings.value.speed * min(1.0, length) * STEP_MS / 1000.0
-                // Report the speed actually travelled, so speed, heading and position change agree.
-                engine.joystickStep(metres, heading, metres * 1000.0 / STEP_MS)
-                moving = true
-            } else if (moving) {
-                moving = false
-                engine.joystickStep(0.0, 0.0, 0.0)
+        val length = hypot(dx, dy).toDouble()
+        if (length > 0.1) {
+            val heading = Geo.normalizeBearing(Math.toDegrees(atan2(dx.toDouble(), (-dy).toDouble())))
+            val metres = engine.store.settings.value.speed * min(1.0, length) * STEP_MS / 1000.0
+            val speed = metres * 1000.0 / STEP_MS
+            moving = true
+            // Report the speed actually travelled off the main thread so dragging never drops frames.
+            worker.post {
+                try { engine.joystickStep(metres, heading, speed) } catch (e: Exception) { engine.store.log("摇杆：${e.message}") }
             }
-        } catch (e: Exception) {
-            engine.store.log("摇杆：${e.message}")
+        } else if (moving) {
+            moving = false
+            worker.post {
+                try { engine.joystickStep(0.0, 0.0, 0.0) } catch (e: Exception) { engine.store.log("摇杆：${e.message}") }
+            }
         }
         if (stepping) handler.postDelayed(move, STEP_MS)
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        worker.removeCallbacksAndMessages(null)
+        workerThread.quitSafely()
         stick?.let { s -> runCatching { windows?.removeView(s) } }
         stick = null
         windowParams = null

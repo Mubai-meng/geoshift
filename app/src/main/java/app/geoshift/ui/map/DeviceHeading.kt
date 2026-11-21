@@ -36,6 +36,7 @@ fun rememberDeviceHeading(enabled: Boolean = true): State<Float?> {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val heading = remember { mutableStateOf<Float?>(null) }
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
+    val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager }
 
     DisposableEffect(lifecycle, sensorManager, enabled) {
         if (!enabled || sensorManager == null) {
@@ -64,7 +65,7 @@ fun rememberDeviceHeading(enabled: Boolean = true): State<Float?> {
         val alpha = 0.16f
 
         fun publishFromMatrix() {
-            val display = displayRotation(context)
+            val display = displayRotation(windowManager)
             val (axisX, axisY) = when (display) {
                 Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
                 Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
@@ -153,5 +154,5 @@ fun rememberDeviceHeading(enabled: Boolean = true): State<Float?> {
 }
 
 @Suppress("DEPRECATION")
-private fun displayRotation(context: Context): Int =
-    (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)?.defaultDisplay?.rotation ?: Surface.ROTATION_0
+private fun displayRotation(wm: WindowManager?): Int =
+    wm?.defaultDisplay?.rotation ?: Surface.ROTATION_0

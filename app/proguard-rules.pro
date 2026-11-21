@@ -10,7 +10,6 @@
 # AMap SDK: JNI and reflective callbacks. Its unused location part refers to optional classes.
 -keep class com.amap.api.** { *; }
 -keep class com.autonavi.** { *; }
--keep class com.loc.** { *; }
 -dontwarn com.amap.api.**
 -dontwarn com.autonavi.**
 -dontwarn com.loc.**

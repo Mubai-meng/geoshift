@@ -53,8 +53,8 @@ import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -120,9 +120,9 @@ fun MapScreen(
     val density = LocalDensity.current
     // With the user's AMap Android key the AMap layer is the official SDK map; MapLibre otherwise.
     val sdk = vm.engine.amapSdk
-    val sdkKey by vm.engine.store.sdkKey.collectAsState()
-    val sdkStyleId by vm.engine.store.sdkStyleId.collectAsState()
-    val realPosition by vm.engine.realPosition.collectAsState()
+    val sdkKey by vm.engine.store.sdkKey.collectAsStateWithLifecycle()
+    val sdkStyleId by vm.engine.store.sdkStyleId.collectAsStateWithLifecycle()
+    val realPosition by vm.engine.realPosition.collectAsStateWithLifecycle()
 
     // The real position can only be read while not simulating; pause polling while off-tab.
     LaunchedEffect(r.enabled, visible) {
@@ -154,7 +154,7 @@ fun MapScreen(
     val officialAmap = s.settings.mapSource == MapSource.AMAP && sdkKey.isNotEmpty() && s.settings.privacyAccepted &&
         sdk.mapSupported && !sdkFailed
     // A key that does not authenticate would leave the official map blank: check it first.
-    LaunchedEffect(sdkKey, s.settings.mapSource) {
+    LaunchedEffect(sdkKey, s.settings.mapSource, officialAmap) {
         if (!officialAmap) return@LaunchedEffect
         val problem = withContext(Dispatchers.IO) { vm.engine.amapKeyProblem() } ?: return@LaunchedEffect
         sdkFailed = true
@@ -179,19 +179,17 @@ fun MapScreen(
         } else {
             saveSearchHistory(keyword)
             searching = true
-            vm.run<List<Place>>(onDone = {
-                if (searchGeneration == generation) {
-                    searching = false
-                    results = it
-                    if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
-                }
-            }) {
-                try {
-                    search(keyword, camera.target)
-                } catch (t: Throwable) {
-                    if (searchGeneration == generation) searching = false
-                    throw t
-                }
+            vm.run<List<Place>>(
+                onDone = {
+                    if (searchGeneration == generation) {
+                        searching = false
+                        results = it
+                        if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
+                    }
+                },
+                onError = { if (searchGeneration == generation) searching = false },
+            ) {
+                search(keyword, camera.target)
             }
         }
     }
@@ -584,7 +582,8 @@ fun MapScreen(
             s.settings.mapSource.attribution,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.align(Alignment.BottomStart).padding(contentPadding).padding(start = 6.dp, bottom = 2.dp)
+            modifier = Modifier.align(Alignment.BottomStart)
+                .padding(start = 12.dp, bottom = with(density) { bottomCardHeight.toDp() } + 4.dp)
                 .background(palette.glass.copy(alpha = 0.85f), MaterialTheme.shapes.extraSmall).padding(horizontal = 6.dp, vertical = 1.dp),
         )
     }

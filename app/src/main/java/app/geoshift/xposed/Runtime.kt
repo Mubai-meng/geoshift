@@ -61,6 +61,8 @@ object Sim {
 
     private lateinit var xposed: XposedInterface
     private var prefs: SharedPreferences? = null
+    // Strong reference required: SharedPreferences / RemotePreferences keep listeners in a WeakHashMap.
+    private var prefListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private val worker by lazy { Handler(HandlerThread("geoshift-config").apply { start() }.looper) }
     private val listeners = ArrayList<() -> Unit>()
 
@@ -81,7 +83,11 @@ object Sim {
             try {
                 val p = xposed.getRemotePreferences(Bridge.PREFS_GROUP)
                 prefs = p
-                p.registerOnSharedPreferenceChangeListener { _, key -> if (key == Bridge.KEY_CONFIG) worker.post { load() } }
+                val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                    if (key == Bridge.KEY_CONFIG) worker.post { load() }
+                }
+                prefListener = listener
+                p.registerOnSharedPreferenceChangeListener(listener)
                 load()
             } catch (e: Throwable) {
                 Log.w("remote preferences unavailable", e)

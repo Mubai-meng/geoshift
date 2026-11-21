@@ -14,6 +14,7 @@ import io.github.libxposed.api.XposedInterface
 import java.lang.reflect.Method
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Rewrites Wi-Fi replies to apps: scans show only the simulated access point (or nothing), the
@@ -26,7 +27,11 @@ class WifiHooks(private val hooks: Hooker, private val loader: ClassLoader, priv
     private val connectivity = listOf("android.net.connectivity.com.android.server.ConnectivityService", "com.android.server.ConnectivityService")
     private val installed = Collections.newSetFromMap(ConcurrentHashMap<Class<*>, Boolean>())
     @Volatile private var wifiFound = false
-    @Volatile private var classLoading: XposedInterface.HookHandle? = null
+    private val classLoading = AtomicReference<XposedInterface.HookHandle?>(null)
+
+    private fun unhookClassLoading() {
+        classLoading.getAndSet(null)?.let { runCatching { it.unhook() } }
+    }
 
     private fun report(ok: Boolean, stage: String, detail: String) = Diag.report("wifi", ok, stage, detail)
 
@@ -43,14 +48,15 @@ class WifiHooks(private val hooks: Hooker, private val loader: ClassLoader, priv
         // (or at most 60 s after install, so an unusual ROM never pays a permanent loadClass hook cost).
         val deadline = SystemClock.elapsedRealtime() + 60_000L
         val loadClass = ClassLoader::class.java.getDeclaredMethod("loadClass", String::class.java, java.lang.Boolean.TYPE)
-        classLoading = hooks.after(loadClass) { call ->
+        val handle = hooks.after(loadClass) { call ->
             if (call.args[0] == implementation) {
                 (call.result as? Class<*>)?.let { installService(it) }
             } else if (SystemClock.elapsedRealtime() > deadline) {
-                classLoading?.let { runCatching { it.unhook() } }
-                classLoading = null
+                unhookClassLoading()
             }
         }
+        classLoading.set(handle)
+        if (wifiFound) unhookClassLoading()
         Reflect.classOrNull("com.android.server.SystemServiceManager", loader)?.let { manager ->
             hooks.declared(manager, "startService") { m ->
                 if (m.parameterTypes.firstOrNull() == Class::class.java) hooks.before(m) { call ->
@@ -118,8 +124,7 @@ class WifiHooks(private val hooks: Hooker, private val loader: ClassLoader, priv
         }
         if (scans > 0) {
             wifiFound = true
-            classLoading?.let { runCatching { it.unhook() } }
-            classLoading = null
+            unhookClassLoading()
             report(true, "installed", "系统 Wi-Fi 入口已安装，等待应用读取")
         } else {
             Reflect.missing["WifiServiceImpl.getScanResults"] = "Wi-Fi"

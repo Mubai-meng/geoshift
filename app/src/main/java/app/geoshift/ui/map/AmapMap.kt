@@ -225,10 +225,12 @@ private class NativeLayers(
         return bitmap
     }
 
+    @Volatile private var released = false
+
     fun onMapReady() {
         ready = true
         map.moveCamera(CameraUpdateFactory.newLatLngZoom(camera.target.amap(), camera.zoom.toFloat()))
-        Handler(Looper.getMainLooper()).post { route(lastRoute, lastEditing, lastAnchors) }
+        Handler(Looper.getMainLooper()).post { if (!released) route(lastRoute, lastEditing, lastAnchors) }
     }
 
     fun animateTo(target: LatLon, zoom: Double, bearing: Double?) {
@@ -306,6 +308,7 @@ private class NativeLayers(
     }
 
     fun release() {
+        released = true
         virtualAnimator?.cancel()
         virtualAnimator = null
     }

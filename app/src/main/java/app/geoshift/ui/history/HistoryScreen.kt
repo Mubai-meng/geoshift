@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -160,7 +161,7 @@ fun HistoryScreen(
     Column(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
         if (selectionMode) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = { selectionMode = false; selectedIds = emptySet() }) {
@@ -205,7 +206,7 @@ fun HistoryScreen(
             placeholder = { Text(when (tab) { 1 -> "搜索路线"; 2 -> "搜索环境记录"; else -> "搜索位置" }) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "清除") } },
-            singleLine = true, shape = MaterialTheme.shapes.medium,
+            singleLine = true, shape = androidx.compose.foundation.shape.CircleShape,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = app.geoshift.ui.theme.palette.fill,
                 unfocusedContainerColor = app.geoshift.ui.theme.palette.fill,
@@ -218,7 +219,7 @@ fun HistoryScreen(
             when {
                 query.isNotBlank() -> EmptyState(Icons.Rounded.Search, if (tab == 1) "未找到匹配的路线" else "未找到匹配的位置", "尝试使用不同的关键词搜索")
                 tab == 0 -> EmptyState(Icons.Rounded.Place, "还没有收藏位置", "在地图上选点，点卡片里的「收藏」")
-                tab == 1 -> EmptyState(Icons.Rounded.Route, "还没有路线", "点地图右侧的路线按钮，依次点选途经点")
+                tab == 1 -> EmptyState(Icons.Rounded.Route, "还没有路线", "点地图左侧的路线按钮，依次点选途经点")
                 else -> EmptyState(Icons.Rounded.Radar, "暂无环境记录", "在「控制台」记录此处的基站与 Wi-Fi")
             }
         } else {
