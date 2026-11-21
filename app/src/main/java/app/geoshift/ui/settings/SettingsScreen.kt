@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Build
@@ -134,6 +135,7 @@ fun SettingsScreen(
     onOpenAmapKey: () -> Unit = {},
 ) {
     val st = s.settings
+    val uriHandler = LocalUriHandler.current
     var number by remember { mutableStateOf<NumberSetting?>(null) }
     var choice by remember { mutableStateOf<String?>(null) }
     var appScope by remember { mutableStateOf(false) }
@@ -250,7 +252,15 @@ fun SettingsScreen(
 
         SectionTitle("关于")
         SettingGroup {
-            SettingRow("Geoshift", "版本 ${s.version}", icon = Icons.Rounded.Info)
+            SettingRow(
+                "Geoshift",
+                "版本 ${s.version} · GitHub 项目主页",
+                icon = Icons.Rounded.Info,
+                onClick = {
+                    runCatching { uriHandler.openUri("https://github.com/languang666/geoshift") }
+                        .onFailure { vm.toast("无法打开浏览器，请手动访问 github.com/languang666/geoshift") }
+                },
+            )
             RowDivider()
             SettingRow("使用帮助", null, icon = Icons.AutoMirrored.Rounded.HelpOutline, onClick = { text = "使用帮助" to HELP })
             RowDivider()
