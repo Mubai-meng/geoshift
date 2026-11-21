@@ -5,216 +5,231 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Geoshift</title>
 <meta name="description" content="Geoshift：Android 虚拟定位 LSPosed / Vector 模块。系统侧伪装定位、卫星、Wi-Fi、基站和蓝牙，沿道路路线，无需任何 Key。">
-<meta name="theme-color" content="#5B67EA">
+<meta name="theme-color" content="#0B0B12">
+<meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
+/* 结构参照 Linear（VoltAgent/awesome-design-md）：单一深色画布、四级表面、1px 发丝描边、无阴影无渐变、产品截图为主。
+   主色沿用 Geoshift 的长春花蓝，薄荷绿只用于「模拟中」状态。 */
 :root{
-  --primary:#5B67EA; --primary-ink:#fff; --mint:#00C897; --live-a:#00D2A0; --live-b:#05B6D4;
-  --danger:#FF5252; --warn:#FF9F43;
-  --bg:#F7F8FC; --surface:#FFFFFF; --text:#16172B; --muted:#5E6178; --line:#E4E7F2;
-  --soft:#EEF0FD; --code:#F0F2FA;
-  --r-s:8px; --r-m:12px; --r-l:16px; --r-xl:28px;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --primary:#7C88FF; --primary-ink:#0E0D1A; --mint:#26E7A6;
-    --bg:#12111D; --surface:#1D1B2D; --text:#ECEBF7; --muted:#A3A1BC; --line:#36334D;
-    --soft:#252341; --code:#26243A;
-  }
-}
-:root[data-theme="dark"]{
-  --primary:#7C88FF; --primary-ink:#0E0D1A; --mint:#26E7A6;
-  --bg:#12111D; --surface:#1D1B2D; --text:#ECEBF7; --muted:#A3A1BC; --line:#36334D;
-  --soft:#252341; --code:#26243A;
+  --primary:#5B67EA; --primary-hover:#7C88FF; --on-primary:#fff;
+  --mint:#26E7A6; --warn:#FF9F43;
+  --canvas:#0B0B12; --s1:#111119; --s2:#16161F; --s3:#1B1B25;
+  --line:#23242E; --line-strong:#34353F;
+  --ink:#F7F8F8; --ink-muted:#D0D6E0; --ink-subtle:#8A8F98; --ink-tertiary:#62666D;
+  --r-sm:6px; --r-md:8px; --r-lg:12px; --r-xl:16px;
 }
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);
-  font:16px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;}
-a{color:var(--primary);text-decoration:none}
-a:hover{text-decoration:underline}
-code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);padding:2px 6px;border-radius:6px;word-break:break-all}
-.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{margin:0;background:var(--canvas);color:var(--ink);
+  font:16px/1.6 "Inter",-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;height:auto;display:block}
+code{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink-subtle);word-break:break-all}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+@media (min-width:720px){.wrap{padding:0 24px}}
 
-/* top bar */
-.top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
-  backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
-.top .wrap{display:flex;align-items:center;gap:12px;height:56px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text)}
-.brand img{width:28px;height:28px;border-radius:8px}
-.top nav{margin-left:auto;display:flex;gap:4px}
-.top nav a{color:var(--muted);padding:6px 12px;border-radius:999px;font-size:14px}
-.top nav a:hover{background:var(--soft);color:var(--text);text-decoration:none}
-@media (max-width:640px){.top nav a.opt{display:none}}
+/* nav */
+.nav{position:sticky;top:0;z-index:10;background:rgba(11,11,18,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;height:56px;gap:8px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+.brand img{width:24px;height:24px;border-radius:6px}
+.nav .links{display:flex;gap:2px;margin-left:24px}
+.nav .links a{font-size:14px;color:var(--ink-subtle);padding:6px 10px;border-radius:var(--r-md)}
+.nav .links a:hover{color:var(--ink);background:var(--s2)}
+.nav .end{margin-left:auto;display:flex;gap:8px;align-items:center}
+@media (max-width:720px){.nav .links{display:none}}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border-radius:var(--r-md);
+  font-size:14px;font-weight:500;border:1px solid var(--line-strong);background:var(--s2);color:var(--ink);cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s}
+.btn:hover{background:var(--s3);border-color:#45464F}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.btn.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
+.btn.lg{height:48px;padding:0 22px;font-size:15px}
+.btn.sm{height:32px;padding:0 12px;font-size:13px}
+.btn svg{width:16px;height:16px;flex:none}
 
 /* hero */
-.hero{position:relative;overflow:hidden;
-  background:radial-gradient(1200px 500px at 50% -10%,#7E89F5 0%,#5B67EA 45%,#3A3FB8 80%,#22236E 100%);color:#fff}
-.hero::after{content:"";position:absolute;inset:auto -10% -40% -10%;height:60%;
-  background:radial-gradient(closest-side,rgba(0,210,160,.28),transparent);pointer-events:none}
-.hero .wrap{position:relative;z-index:1;display:grid;grid-template-columns:1.25fr .9fr;gap:40px;align-items:center;padding-top:64px;padding-bottom:72px}
-.hero h1{font-size:clamp(36px,6vw,56px);line-height:1.1;margin:0 0 12px;letter-spacing:-.5px}
-.hero .lead{font-size:clamp(17px,2.2vw,20px);opacity:.92;margin:0 0 24px;max-width:36em}
-.hero .tags{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 28px;padding:0;list-style:none}
-.hero .tags li{font-size:13px;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22)}
-.hero-art{justify-self:center;position:relative}
-.hero-art img{width:min(340px,70vw);aspect-ratio:1;border-radius:72px;box-shadow:0 30px 80px rgba(10,10,60,.45),0 0 0 1px rgba(255,255,255,.18) inset;display:block}
-@media (max-width:820px){
-  .hero .wrap{grid-template-columns:1fr;gap:28px;padding-top:40px;padding-bottom:48px}
-  .hero-art{order:-1}
-  .hero-art img{width:132px;border-radius:30px}
-}
+.hero{padding:72px 0 0;text-align:center}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;letter-spacing:.02em;color:var(--ink-muted);
+  padding:4px 12px 4px 6px;border:1px solid var(--line);border-radius:999px;background:var(--s1)}
+.eyebrow b{font-weight:600;color:var(--on-primary);background:var(--primary);border-radius:999px;padding:1px 8px;font-size:12px}
+.eyebrow:hover{border-color:var(--line-strong)}
+h1{font-size:clamp(38px,7vw,72px);line-height:1.08;font-weight:650;letter-spacing:-.035em;margin:24px auto 20px;max-width:15em;text-wrap:balance}
+.hero .lead{font-size:clamp(16px,2vw,19px);color:var(--ink-subtle);max-width:34em;margin:0 auto 32px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.dlmeta{margin:16px auto 0;font-size:13px;color:var(--ink-tertiary);display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;align-items:center}
+.dlmeta select{font:inherit;color:var(--ink-muted);background:var(--s1);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px 6px}
+.dlmeta a{color:var(--ink-subtle)} .dlmeta a:hover{color:var(--ink)}
+@media (max-width:480px){.cta .btn{width:100%}}
 
-/* download card */
-.dl{background:var(--surface);color:var(--text);border-radius:var(--r-l);padding:20px;box-shadow:0 12px 40px rgba(12,12,60,.28);max-width:560px}
-.dl-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-.dl-head b{font-size:18px}
-.dl-head .meta{color:var(--muted);font-size:13px}
-.pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;border-radius:999px;background:color-mix(in srgb,var(--mint) 18%,transparent);color:color-mix(in srgb,var(--mint) 70%,var(--text))}
-.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media (max-width:480px){.btns{grid-template-columns:1fr}}
-.btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:58px;padding:10px 16px;border-radius:var(--r-l);
-  font-weight:700;font-size:16px;border:1px solid var(--line);background:var(--soft);color:var(--text);cursor:pointer;text-align:center}
-.btn small{font-weight:400;font-size:12px;opacity:.8}
-.btn:hover{text-decoration:none;filter:brightness(1.04)}
-.btn.primary{background:var(--primary);color:var(--primary-ink);border-color:transparent;box-shadow:0 6px 18px color-mix(in srgb,var(--primary) 40%,transparent)}
-.dl-foot{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:14px;font-size:13px;color:var(--muted)}
-.dl-foot select{font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
-.sha{margin-top:12px;font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:flex-start}
-.sha code{font-size:11px;flex:1}
-.copy{font:inherit;font-size:12px;border:1px solid var(--line);background:transparent;color:var(--primary);border-radius:999px;padding:1px 10px;cursor:pointer;white-space:nowrap}
+/* screenshots */
+.shots{margin-top:64px;border-top:1px solid var(--line);background:var(--s1)}
+.phones{display:flex;gap:28px;justify-content:center;align-items:flex-start;padding:48px 16px 0;overflow:hidden}
+.phone{flex:none;width:260px;border:1px solid var(--line-strong);border-radius:34px;padding:7px;background:var(--canvas)}
+.phone img{border-radius:27px;aspect-ratio:9/16;width:100%;object-fit:cover}
+.phone.mid{width:300px;margin-top:-28px}
+.phone figcaption{font-size:12px;color:var(--ink-tertiary);text-align:center;padding:10px 0 4px}
+@media (max-width:900px){
+  .phones{justify-content:flex-start;overflow-x:auto;scroll-snap-type:x mandatory;padding:40px 16px 0;gap:14px;scrollbar-width:none}
+  .phones::-webkit-scrollbar{display:none}
+  .phone,.phone.mid{width:min(62vw,260px);margin-top:0;scroll-snap-align:center}
+  .phone.mid{order:-1}
+}
+.shots-fade{height:48px;border-bottom:1px solid var(--line)}
 
 /* sections */
-section{padding:64px 0}
-section+section{border-top:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
-h2{font-size:clamp(24px,3.4vw,32px);margin:0 0 8px;letter-spacing:-.3px}
-.sub{color:var(--muted);margin:0 0 32px;max-width:46em}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-@media (max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:560px){.grid{grid-template-columns:1fr}}
-.card{background:var(--surface);border:1px solid color-mix(in srgb,var(--line) 80%,transparent);border-radius:var(--r-l);padding:20px}
-.card h3{margin:12px 0 6px;font-size:17px}
-.card p{margin:0;color:var(--muted);font-size:15px}
-.ico{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--soft);color:var(--primary)}
-.ico.m{background:color-mix(in srgb,var(--mint) 16%,transparent);color:color-mix(in srgb,var(--mint) 80%,var(--text))}
-.ico svg{width:22px;height:22px}
+section{padding:96px 0;border-bottom:1px solid var(--line)}
+.kicker{font-size:13px;font-weight:500;letter-spacing:.04em;color:var(--primary-hover);margin:0 0 12px}
+h2{font-size:clamp(28px,4.2vw,44px);line-height:1.15;font-weight:650;letter-spacing:-.03em;margin:0 0 16px;max-width:18em;text-wrap:balance}
+.sec-lead{color:var(--ink-subtle);font-size:17px;max-width:38em;margin:0 0 48px}
 
-.steps{counter-reset:s;list-style:none;margin:0;padding:0;display:grid;gap:12px}
-.steps li{counter-increment:s;display:grid;grid-template-columns:40px 1fr;gap:14px;align-items:start;background:var(--surface);border:1px solid color-mix(in srgb,var(--line) 80%,transparent);border-radius:var(--r-l);padding:16px 18px}
-.steps li::before{content:counter(s);width:32px;height:32px;border-radius:999px;display:grid;place-items:center;font-weight:700;background:var(--primary);color:var(--primary-ink)}
-.steps b{display:block;margin-bottom:2px}
-.steps span{color:var(--muted);font-size:15px}
+/* feature grid: 1px hairline gaps */
+.fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
+@media (max-width:900px){.fgrid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:600px){.fgrid{grid-template-columns:1fr}}
+.f{background:var(--canvas);padding:28px 24px 30px}
+.f svg{width:20px;height:20px;color:var(--ink-muted);margin-bottom:18px}
+.f h3{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px}
+.f p{margin:0;font-size:14px;color:var(--ink-subtle);line-height:1.65}
 
-.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media (max-width:760px){.two{grid-template-columns:1fr}}
-.list{margin:0;padding-left:20px;color:var(--muted)}
-.list li{margin:6px 0}
-.list b{color:var(--text)}
-.note{border-left:4px solid var(--warn)}
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;list-style:none;padding:0;margin:0;counter-reset:s}
+@media (max-width:900px){.steps{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.steps{grid-template-columns:1fr}}
+.steps li{counter-increment:s;background:var(--s1);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 20px}
+.steps li::before{content:"0" counter(s);display:block;font:500 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--primary-hover);margin-bottom:16px}
+.steps b{display:block;font-weight:600;margin-bottom:6px}
+.steps span{font-size:14px;color:var(--ink-subtle)}
+.steps a{color:var(--ink-muted);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:3px}
 
-details{background:var(--surface);border:1px solid color-mix(in srgb,var(--line) 80%,transparent);border-radius:var(--r-l);padding:0 18px;margin-bottom:10px}
-summary{cursor:pointer;padding:16px 0;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:12px}
+/* scope table */
+.scope{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:760px){.scope{grid-template-columns:1fr}}
+.panel{background:var(--s1);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
+.panel h3{margin:0;padding:16px 20px;font-size:14px;font-weight:600;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:999px;background:var(--mint)}
+.dot.w{background:var(--warn)}
+.row{display:grid;grid-template-columns:7.5em 1fr;gap:12px;padding:12px 20px;font-size:14px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row b{font-weight:500}
+.row span{color:var(--ink-subtle)}
+
+/* faq */
+.faq{border-top:1px solid var(--line)}
+details{border-bottom:1px solid var(--line)}
+summary{cursor:pointer;list-style:none;padding:20px 0;font-weight:500;display:flex;justify-content:space-between;gap:16px}
 summary::-webkit-details-marker{display:none}
-summary::after{content:"+";color:var(--primary);font-weight:700}
-details[open] summary::after{content:"−"}
-details p{margin:0 0 16px;color:var(--muted)}
+summary::after{content:"";width:10px;height:10px;flex:none;margin-top:6px;border-right:1.5px solid var(--ink-subtle);border-bottom:1.5px solid var(--ink-subtle);transform:rotate(45deg);transition:transform .15s}
+details[open] summary::after{transform:rotate(-135deg);margin-top:10px}
+details p{margin:-4px 0 20px;color:var(--ink-subtle);font-size:15px;max-width:44em}
 
-footer{padding:36px 0 48px;color:var(--muted);font-size:13px;border-top:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
-footer .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;transition:.2s;background:var(--text);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:14px;pointer-events:none}
-.toast.show{opacity:1;transform:translateX(-50%)}
+/* closing cta */
+.closing{text-align:center;padding:112px 0}
+.closing img{width:72px;height:72px;border-radius:18px;margin:0 auto 24px;border:1px solid var(--line-strong)}
+.closing h2{margin:0 auto 12px}
+.closing p{color:var(--ink-subtle);margin:0 0 28px}
+.sha{margin-top:20px;display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:100%}
+.sha span{font-size:12px;color:var(--ink-tertiary)}
+
+footer{padding:32px 0 40px;font-size:13px;color:var(--ink-tertiary)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between}
+footer a{color:var(--ink-subtle)} footer a:hover{color:var(--ink)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);opacity:0;transition:.2s;background:var(--s3);border:1px solid var(--line-strong);color:var(--ink);padding:8px 14px;border-radius:var(--r-md);font-size:13px;pointer-events:none}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+:focus-visible{outline:2px solid var(--primary-hover);outline-offset:2px}
 </style>
 </head>
 <body>
 
-<header class="top">
+<header class="nav">
   <div class="wrap">
-    <a class="brand" href="#"><img src="favicon.png" alt="">Geoshift</a>
-    <nav>
-      <a class="opt" href="#features">功能</a>
-      <a class="opt" href="#start">上手</a>
+    <a class="brand" href="#top"><img src="favicon.png" width="24" height="24" alt="">Geoshift</a>
+    <nav class="links">
+      <a href="#features">功能</a>
+      <a href="#start">上手</a>
+      <a href="#scope">范围</a>
       <a href="#faq">常见问题</a>
-      <a href="https://github.com/languang666/geoshift" rel="noopener">GitHub</a>
     </nav>
+    <div class="end">
+      <a class="btn sm" href="https://github.com/languang666/geoshift" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+      <a class="btn sm primary" href="#download-end">下载</a>
+    </div>
   </div>
 </header>
 
+<main id="top">
 <div class="hero">
   <div class="wrap">
-    <div>
-      <h1>Geoshift</h1>
-      <p class="lead">Android 虚拟定位模块。改写在系统侧完成，定位、卫星、Wi-Fi、基站和蓝牙一起换掉，不往任何应用里注入代码，全部功能无需任何 Key。</p>
-      <ul class="tags">
-        <li>LSPosed 2.2+ / Vector</li>
-        <li>Android 8.0+ · arm64</li>
-        <li>开源 · Apache-2.0</li>
-      </ul>
-
-      <div class="dl" id="download">
-        <div class="dl-head">
-          <b>最新版 <span id="ver">v3.5.2</span></b>
-          <span class="pill">Latest</span>
-          <span class="meta" id="meta">30.3 MB</span>
-        </div>
-        <div class="btns">
-          <a class="btn primary" id="btnCn" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.2/Geoshift-3.5.2.apk" rel="noopener">国内加速下载<small>经 GitHub 代理</small></a>
-          <a class="btn" id="btnGh" href="https://github.com/languang666/geoshift/releases/download/v3.5.2/Geoshift-3.5.2.apk" rel="noopener">GitHub 直连<small>海外网络</small></a>
-        </div>
-        <div class="dl-foot">
-          <label>加速线路
-            <select id="proxy">
-              <option value="https://gh-proxy.com/">gh-proxy.com</option>
-              <option value="https://ghfast.top/">ghfast.top</option>
-              <option value="https://ghproxy.net/">ghproxy.net</option>
-            </select>
-          </label>
-          <a id="probe" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.2/GeoProbe.apk">GeoProbe 探针</a>
-          <a id="notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener">更新说明</a>
-          <a href="https://github.com/languang666/geoshift/releases" rel="noopener">历史版本</a>
-        </div>
-        <div class="sha"><span>SHA-256</span><code id="sha">2b5d7784282f473ebd100b967c7537896bb905fe8fc39c950d84f21f7671363d</code><button class="copy" id="copySha" type="button">复制</button></div>
-      </div>
+    <a class="eyebrow js-notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener"><b class="js-ver">v3.5.2</b>路线编辑可直接搜地名添加途经点 →</a>
+    <h1>系统级虚拟定位，<br>不碰你的应用</h1>
+    <p class="lead">Geoshift 是 Android 上的 Xposed 模块。定位、卫星、Wi-Fi、基站和蓝牙在系统侧一起替换，不往任何应用里注入代码，全部功能无需任何 Key。</p>
+    <div class="cta" id="download">
+      <a class="btn lg primary js-cn" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.2/Geoshift-3.5.2.apk" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8.5M4.5 7 8 10.5 11.5 7M2.5 13.5h11"/></svg>国内加速下载</a>
+      <a class="btn lg js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.2/Geoshift-3.5.2.apk" rel="noopener">GitHub 直连下载</a>
     </div>
-    <div class="hero-art"><img src="icon.webp" width="384" height="384" alt="Geoshift 图标"></div>
+    <div class="dlmeta">
+      <span><span class="js-ver">v3.5.2</span> · <span class="js-meta">28.9 MB · 2026-11-20</span> · arm64 · Android 8.0+</span>
+      <label>加速线路
+        <select class="js-proxy" aria-label="加速线路">
+          <option value="https://gh-proxy.com/">gh-proxy.com</option>
+          <option value="https://ghfast.top/">ghfast.top</option>
+          <option value="https://ghproxy.net/">ghproxy.net</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="shots">
+    <div class="phones">
+      <figure class="phone" style="margin:0"><img src="shots/pick.webp" width="720" height="1280" alt="地图选点：从这里开始模拟、设为模拟点、路线到这里、收藏" loading="lazy"><figcaption>点选或搜索地点</figcaption></figure>
+      <figure class="phone mid" style="margin-bottom:0"><img src="shots/map.webp" width="720" height="1280" alt="地图上显示模拟中的位置和停止按钮"><figcaption>模拟中</figcaption></figure>
+      <figure class="phone" style="margin:0"><img src="shots/console.webp" width="720" height="1280" alt="控制台：模拟状态、单点定位、摇杆、Wi-Fi、基站、卫星" loading="lazy"><figcaption>控制台</figcaption></figure>
+    </div>
+    <div class="shots-fade"></div>
   </div>
 </div>
 
-<main>
 <section id="features">
   <div class="wrap">
-    <h2>系统侧模拟，不碰你的应用</h2>
-    <p class="sub">模块只作用于「系统框架」「电话服务」「蓝牙」三个系统进程。应用拿到的定位回调、缓存位置、卫星状态都是模拟值，且不带模拟标记；作用域里不需要、也不应该勾选普通应用。</p>
-    <div class="grid">
-      <div class="card">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg></div>
+    <p class="kicker">功能</p>
+    <h2>应用能读到的位置线索，<br>都在系统侧换掉</h2>
+    <p class="sec-lead">模块只作用于「系统框架」「电话服务」「蓝牙」三个系统进程。应用收到的回调、缓存位置和卫星状态都是模拟值，且不带模拟标记。</p>
+    <div class="fgrid">
+      <div class="f">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>
         <h3>完整的定位链路</h3>
-        <p>gps / network / fused 统一推送，单次定位、PendingIntent、批量回调与谷歌融合定位都返回模拟位置；静止时几米内平滑漂移，精度与海拔随时间波动。</p>
+        <p>gps、network、fused 统一推送；单次定位、PendingIntent、批量回调和谷歌融合定位都返回模拟位置。静止时在几米内平滑漂移，精度和海拔随时间波动。</p>
       </div>
-      <div class="card">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7 9 3 5 7l4 4"/><path d="m17 11 4 4-4 4-4-4"/><path d="m8 12 4 4 6-6-4-4Z"/><path d="m16 8 3-3"/><path d="M9 21a6 6 0 0 0-6-6"/></svg></div>
+      <div class="f">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
         <h3>卫星与 NMEA</h3>
-        <p>GPS、北斗、Galileo、GLONASS 模拟星座，信号强度随仰角变化；NMEA 逐条替换为一致的模拟语句，可反推真实位置的原始测量不再下发。</p>
+        <p>GPS、北斗、Galileo、GLONASS 模拟星座，信号强度随仰角变化；NMEA 逐条换成一致的模拟语句，可反推真实位置的原始测量不再下发。</p>
       </div>
-      <div class="card">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M2 9a15 15 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1"/></svg></div>
+      <div class="f">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M2 9a15 15 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1"/></svg>
         <h3>Wi-Fi、基站、蓝牙</h3>
-        <p>Wi-Fi 扫描与连接信息、GSM / LTE / 5G NR 基站全部换成预设；模拟期间应用扫描不到蓝牙 LE 信标，防止 SDK 用周边设备反查位置。</p>
+        <p>Wi-Fi 扫描和连接信息、GSM / LTE / 5G NR 基站换成预设；模拟期间应用扫描不到蓝牙 LE 信标，防止 SDK 用周边设备反查位置。</p>
       </div>
-      <div class="card">
-        <div class="ico m"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5"/></svg></div>
+      <div class="f">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5"/></svg>
         <h3>沿道路路线</h3>
-        <p>步行 / 骑行 / 驾车按真实道路连接途经点，也能纯手选直线；速度可直接填 km/h，起步、转弯、到站会减速，可选路口减速与随机红灯。</p>
+        <p>步行、骑行、驾车按真实道路连接途经点，也可以纯手选直线。速度可直接填 km/h，起步、转弯、到站减速，可选路口减速与随机红灯。</p>
       </div>
-      <div class="card">
-        <div class="ico m"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8v8M8 12h8"/></svg></div>
+      <div class="f">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 7v5l3 2"/></svg>
         <h3>App 休眠也照常</h3>
-        <p>配置交给系统侧保存，App 熄屏、被冻结甚至被结束，模拟和路线都继续，直到在 App 里停止或重启手机。另有悬浮摇杆，可随手走动。</p>
+        <p>配置交给系统侧保存，App 熄屏、被冻结甚至被结束，模拟和路线都继续，直到在 App 里停止或重启手机。另有悬浮摇杆。</p>
       </div>
-      <div class="card">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg></div>
+      <div class="f">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
         <h3>多种地图，无需 Key</h3>
-        <p>OpenStreetMap、矢量地图、高德瓦片、全球卫星影像随时切换；愿意的话可以填自己申请的高德 Android Key，换成官方高德地图、搜索和路线。</p>
+        <p>OpenStreetMap、矢量地图、高德瓦片、全球卫星影像随时切换。也可以填自己申请的高德 Android Key，换成官方高德地图、搜索和路线。</p>
       </div>
     </div>
   </div>
@@ -222,40 +237,38 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-betw
 
 <section id="start">
   <div class="wrap">
+    <p class="kicker">上手</p>
     <h2>四步开始</h2>
-    <p class="sub">需要已 Root 的 64 位 ARM 手机（Magisk，或 KernelSU 配合 Zygisk Next）。</p>
+    <p class="sec-lead">需要已 Root 的 64 位 ARM 手机：Magisk，或 KernelSU 配合 Zygisk Next。</p>
     <ol class="steps">
-      <li><div><b>装好 Xposed 框架</b><span>LSPosed 2.2 及以上（<a href="https://lsposed.zip" rel="noopener">lsposed.zip</a>）或 Vector。旧版 LSPosed 1.x 不支持新版 API，无法加载本模块。</span></div></li>
-      <li><div><b>安装 Geoshift 并启用模块</b><span>在框架里启用 Geoshift，作用域固定为系统框架、电话服务和蓝牙，不用另外勾选应用。</span></div></li>
-      <li><div><b>重启手机</b><span>模块在系统进程里加载，安装和每次更新后都要重启一次。</span></div></li>
-      <li><div><b>选点或画路线，开始模拟</b><span>打开 App，在地图上点选或搜索地点，点「从这里开始模拟」。「控制台 → 系统诊断」可以看到每一项是否生效。</span></div></li>
+      <li><b>装好 Xposed 框架</b><span>LSPosed 2.2 及以上（<a href="https://lsposed.zip" rel="noopener">lsposed.zip</a>）或 Vector。LSPosed 1.x 不支持新版 API。</span></li>
+      <li><b>安装并启用模块</b><span>在框架里启用 Geoshift，作用域固定为系统框架、电话服务和蓝牙，不用另外勾选应用。</span></li>
+      <li><b>重启手机</b><span>模块在系统进程里加载，安装和每次更新后都要重启一次。</span></li>
+      <li><b>选点，开始模拟</b><span>在地图上点选或搜索地点，点「从这里开始模拟」。「控制台 → 系统诊断」可查看每一项是否生效。</span></li>
     </ol>
   </div>
 </section>
 
-<section>
+<section id="scope">
   <div class="wrap">
-    <h2>能做什么，不能做什么</h2>
-    <p class="sub">把边界说清楚，免得踩坑。</p>
-    <div class="two">
-      <div class="card">
-        <h3 style="margin-top:0">可以伪装</h3>
-        <ul class="list">
-          <li><b>定位</b>：各类定位回调、缓存位置、谷歌融合定位</li>
-          <li><b>卫星</b>：GNSS 状态与 NMEA</li>
-          <li><b>Wi-Fi</b>：扫描结果、连接信息、网络回调</li>
-          <li><b>基站</b>：GSM / LTE / NR 及状态变化回调</li>
-          <li><b>蓝牙 LE</b>：模拟期间应用扫描不到信标</li>
-          <li><b>小米模糊定位</b>：HyperOS / MIUI 自带服务</li>
-        </ul>
+    <p class="kicker">范围</p>
+    <h2>能伪装什么，不能伪装什么</h2>
+    <p class="sec-lead">把边界说清楚，免得踩坑。</p>
+    <div class="scope">
+      <div class="panel">
+        <h3><i class="dot"></i>系统侧替换</h3>
+        <div class="row"><b>定位</b><span>各类定位回调、缓存位置、谷歌融合定位</span></div>
+        <div class="row"><b>卫星</b><span>GNSS 状态与 NMEA</span></div>
+        <div class="row"><b>Wi-Fi</b><span>扫描结果、连接信息、网络回调</span></div>
+        <div class="row"><b>基站</b><span>GSM / LTE / NR 及状态变化回调</span></div>
+        <div class="row"><b>蓝牙 LE</b><span>模拟期间应用扫描不到信标</span></div>
+        <div class="row"><b>小米模糊定位</b><span>HyperOS / MIUI 自带服务</span></div>
       </div>
-      <div class="card note">
-        <h3 style="margin-top:0">无法伪装</h3>
-        <ul class="list">
-          <li><b>公网 IP</b>：需要对应地区的代理 / VPN，诊断里有「出口 IP 校验」</li>
-          <li><b>运营商代码</b>：来自 SIM 卡的系统属性</li>
-          <li><b>传感器</b>：加速度计、陀螺仪、计步不做改写。静止打卡请用静止模拟；需要轨迹时尽量用步行速度</li>
-        </ul>
+      <div class="panel">
+        <h3><i class="dot w"></i>无法伪装</h3>
+        <div class="row"><b>公网 IP</b><span>需要对应地区的代理 / VPN；「系统诊断」里有出口 IP 校验</span></div>
+        <div class="row"><b>运营商代码</b><span>来自 SIM 卡的系统属性</span></div>
+        <div class="row"><b>传感器</b><span>加速度计、陀螺仪、计步不做改写。静止打卡请用静止模拟，需要轨迹时尽量用步行速度</span></div>
       </div>
     </div>
   </div>
@@ -263,25 +276,52 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-betw
 
 <section id="faq">
   <div class="wrap">
+    <p class="kicker">常见问题</p>
     <h2>常见问题</h2>
-    <p class="sub">更多细节见 <a href="https://github.com/languang666/geoshift#readme" rel="noopener">README</a>。</p>
-    <details><summary>国内下载很慢或打不开？</summary><p>默认的「国内加速下载」经第三方 GitHub 代理转发。某条线路不通时，在下载卡片里换一条「加速线路」再点。下载后可对照卡片上的 SHA-256 确认文件完整。</p></details>
-    <details><summary>从 2.x 升级要注意什么？</summary><p>3.0 起不沿用 2.x 的数据。升级前在 2.x「设置 → 导出备份」，装好新版后「设置 → 导入备份」。框架也要换成 LSPosed 2.2+ 或 Vector。</p></details>
-    <details><summary>一定要填高德 Key 吗？</summary><p>不用。不填时地图、搜索、地址和道路路线使用 OpenStreetMap 体系的公共服务。填了自己申请的高德 Android Key 后，「高德地图」图层改用官方 SDK，搜索和路线也走高德；App 里「设置 → 高德 Key」有分步申请引导。</p></details>
-    <details><summary>只想让某几个应用拿到模拟位置？</summary><p>在「设置 → 模拟范围」改为「仅选中的应用」，其他应用（如导航）继续拿到真实数据。使用谷歌融合定位的应用要同时选中「Google Play 服务」。</p></details>
-    <details><summary>GeoProbe 是什么？</summary><p>一个独立的探针应用，以普通应用身份读取全部定位线索并显示是否为模拟值，用来验证模块是否在你的手机上完整生效。</p></details>
-    <details><summary>支持 32 位手机吗？</summary><p>当前版本只打包 64 位 ARM（arm64-v8a）。32 位设备可在历史版本里找 3.0.5。</p></details>
+    <p class="sec-lead">更多细节见 <a href="https://github.com/languang666/geoshift#readme" rel="noopener" style="color:var(--ink-muted);text-decoration:underline;text-underline-offset:3px">README</a>。</p>
+    <div class="faq">
+      <details><summary>国内下载很慢或打不开？</summary><p>「国内加速下载」经第三方 GitHub 代理转发。某条线路不通时，在下载按钮下方换一条「加速线路」再点。下载后可对照页面底部的 SHA-256 确认文件完整。</p></details>
+      <details><summary>从 2.x 升级要注意什么？</summary><p>3.0 起不沿用 2.x 的数据。升级前在 2.x「设置 → 导出备份」，装好新版后「设置 → 导入备份」。框架也要换成 LSPosed 2.2+ 或 Vector。</p></details>
+      <details><summary>一定要填高德 Key 吗？</summary><p>不用。不填时地图、搜索、地址和道路路线使用 OpenStreetMap 体系的公共服务。填了自己申请的高德 Android Key 后，「高德地图」图层改用官方 SDK，搜索和路线也走高德；App 里「设置 → 高德 Key」有分步申请引导。</p></details>
+      <details><summary>只想让某几个应用拿到模拟位置？</summary><p>在「设置 → 模拟范围」改为「仅选中的应用」，其他应用（如导航）继续拿到真实数据。使用谷歌融合定位的应用要同时选中「Google Play 服务」。</p></details>
+      <details><summary>GeoProbe 是什么？</summary><p>独立的探针应用，以普通应用身份读取全部定位线索并显示是否为模拟值，用来验证模块在你的手机上是否完整生效。<a class="js-probe" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.2/GeoProbe.apk" style="color:var(--ink-muted);text-decoration:underline;text-underline-offset:3px">下载 GeoProbe</a></p></details>
+      <details><summary>支持 32 位手机吗？</summary><p>当前版本只打包 64 位 ARM（arm64-v8a）。32 位设备可在<a href="https://github.com/languang666/geoshift/releases" rel="noopener" style="color:var(--ink-muted);text-decoration:underline;text-underline-offset:3px">历史版本</a>里找 3.0.5。</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="closing" id="download-end" style="border-bottom:0">
+  <div class="wrap">
+    <img src="icon.webp" width="384" height="384" alt="Geoshift 图标">
+    <h2>下载 Geoshift <span class="js-ver">v3.5.2</span></h2>
+    <p><span class="js-meta">28.9 MB · 2026-11-20</span> · arm64 · Android 8.0+ · LSPosed 2.2+ / Vector</p>
+    <div class="cta">
+      <a class="btn lg primary js-cn" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.2/Geoshift-3.5.2.apk" rel="noopener">国内加速下载</a>
+      <a class="btn lg js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.2/Geoshift-3.5.2.apk" rel="noopener">GitHub 直连下载</a>
+    </div>
+    <div class="dlmeta">
+      <label>加速线路
+        <select class="js-proxy" aria-label="加速线路">
+          <option value="https://gh-proxy.com/">gh-proxy.com</option>
+          <option value="https://ghfast.top/">ghfast.top</option>
+          <option value="https://ghproxy.net/">ghproxy.net</option>
+        </select>
+      </label>
+      <a class="js-notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener">更新说明</a>
+      <a href="https://github.com/languang666/geoshift/releases" rel="noopener">历史版本</a>
+    </div>
+    <div class="sha js-sha-box"><span>SHA-256</span><code class="js-sha">2b5d7784282f473ebd100b967c7537896bb905fe8fc39c950d84f21f7671363d</code><button class="btn sm" id="copySha" type="button">复制</button></div>
   </div>
 </section>
 </main>
 
 <footer>
-  <div class="wrap">
+  <div class="wrap" style="border-top:1px solid var(--line);padding-top:28px">
     <span>Geoshift · Apache License 2.0 · 地图数据 © OpenStreetMap contributors</span>
     <span><a href="https://github.com/languang666/geoshift" rel="noopener">源码</a> · <a href="https://github.com/languang666/geoshift/issues" rel="noopener">反馈问题</a></span>
   </div>
 </footer>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status"></div>
 
 <script>
 (function(){
@@ -291,36 +331,37 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-betw
     apk: "https://github.com/" + REPO + "/releases/download/v3.5.2/Geoshift-3.5.2.apk",
     probe: "https://github.com/" + REPO + "/releases/download/v3.5.2/GeoProbe.apk"
   };
-  var $ = function(id){ return document.getElementById(id); };
-  var sel = $("proxy");
-
+  function all(sel){ return [].slice.call(document.querySelectorAll(sel)); }
+  function set(sel, fn){ all(sel).forEach(fn); }
   function store(k, v){ try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch(e){ return null; } }
-  var saved = store("gs-proxy");
-  if (saved && [].some.call(sel.options, function(o){ return o.value === saved; })) sel.value = saved;
 
-  // 国内网络环境：把加速按钮放在主位置；海外则把直连作为主按钮
+  var proxy = "https://gh-proxy.com/";
+  var saved = store("gs-proxy");
+  if (saved && all(".js-proxy option").some(function(o){ return o.value === saved; })) proxy = saved;
+
+  // 国内时区：加速下载作主按钮；其他地区：直连作主按钮
   var tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch(e){}
   var inCN = /^Asia\/(Shanghai|Chongqing|Chungking|Harbin|Urumqi|Kashgar)$/.test(tz);
-  if (!inCN) {
-    $("btnGh").classList.add("primary"); $("btnCn").classList.remove("primary");
-    $("btnGh").parentNode.insertBefore($("btnGh"), $("btnCn"));
-  }
-
-  function render(){
-    var p = sel.value;
-    $("btnCn").href = p + state.apk;
-    $("btnGh").href = state.apk;
-    $("probe").href = (inCN ? p : "") + state.probe;
-    $("ver").textContent = state.tag;
-  }
-  sel.addEventListener("change", function(){ store("gs-proxy", sel.value); render(); });
-
-  function toast(t){ var e = $("toast"); e.textContent = t; e.classList.add("show"); setTimeout(function(){ e.classList.remove("show"); }, 1600); }
-  $("copySha").addEventListener("click", function(){
-    var t = $("sha").textContent;
-    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function(){ toast("已复制 SHA-256"); }, function(){ toast("复制失败，请手动选择"); });
+  if (!inCN) all(".cta").forEach(function(c){
+    var cn = c.querySelector(".js-cn"), gh = c.querySelector(".js-gh");
+    cn.classList.remove("primary"); gh.classList.add("primary"); c.insertBefore(gh, cn);
   });
 
+  function render(){
+    set(".js-proxy", function(s){ s.value = proxy; });
+    set(".js-cn", function(a){ a.href = proxy + state.apk; });
+    set(".js-gh", function(a){ a.href = state.apk; });
+    set(".js-probe", function(a){ a.href = (inCN ? proxy : "") + state.probe; });
+    set(".js-ver", function(e){ e.textContent = state.tag; });
+  }
+  set(".js-proxy", function(s){ s.addEventListener("change", function(){ proxy = s.value; store("gs-proxy", proxy); render(); }); });
+
+  var toastT;
+  function toast(t){ var e = document.getElementById("toast"); e.textContent = t; e.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(function(){ e.classList.remove("show"); }, 1600); }
+  document.getElementById("copySha").addEventListener("click", function(){
+    var t = document.querySelector(".js-sha").textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function(){ toast("已复制 SHA-256"); }, function(){ toast("复制失败，请手动选择"); });
+  });
   render();
 
   // 读取最新 Release；失败时保留页面内置的版本
@@ -335,13 +376,18 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-betw
       if (!apk) return;
       state.tag = rel.tag_name; state.apk = apk.browser_download_url;
       if (probe) state.probe = probe.browser_download_url;
-      var mb = (apk.size / 1048576).toFixed(1) + " MB";
-      var d = rel.published_at ? rel.published_at.slice(0, 10) : "";
-      $("meta").textContent = mb + (d ? " · " + d : "");
-      $("notes").href = rel.html_url;
+      var meta = (apk.size / 1048576).toFixed(1) + " MB" + (rel.published_at ? " · " + rel.published_at.slice(0, 10) : "");
+      set(".js-meta", function(e){ e.textContent = meta; });
+      set(".js-notes", function(a){ a.href = rel.html_url; });
       var m = /Geoshift APK SHA-256[^`]*`([0-9a-f]{64})`/i.exec(rel.body || "");
       var digest = m ? m[1] : (apk.digest || "").replace(/^sha256:/, "");
-      if (digest) $("sha").textContent = digest; else $("sha").parentNode.style.display = "none";
+      if (digest) set(".js-sha", function(e){ e.textContent = digest; });
+      else set(".js-sha-box", function(e){ e.style.display = "none"; });
+      if (rel.tag_name !== "v3.5.2") {
+        // 首屏提示条里的更新摘要只对内置版本成立，新版本时改成通用文字
+        var eb = document.querySelector(".eyebrow");
+        eb.lastChild.textContent = "新版本已发布，查看更新说明 →";
+      }
       render();
     })
     .catch(function(){ /* 网络不通时用内置链接 */ });
