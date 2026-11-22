@@ -150,19 +150,23 @@ summary::after{content:"";width:9px;height:9px;flex:none;margin-top:7px;border-r
 details[open] summary::after{transform:rotate(-135deg);margin-top:11px}
 details p{margin:-4px 0 22px;color:var(--fog);font-size:15px;line-height:1.68;max-width:46em}
 
-/* closing cta */
-.closing{text-align:center;padding:120px 0;position:relative}
-.closing img{width:76px;height:76px;border-radius:20px;margin:0 auto 28px;border:1px solid var(--line-strong);box-shadow:0 16px 40px rgba(0,0,0,.3)}
+/* closing download hub */
+.closing{text-align:center;padding:104px 0;position:relative}
+.closing img{width:64px;height:64px;border-radius:16px;margin:0 auto 20px;border:1px solid var(--line-strong);box-shadow:0 16px 40px rgba(0,0,0,.3)}
 .closing h2{margin:0 auto 12px}
-.closing p{color:var(--fog);margin:0 0 32px}
+.closing .sec-lead{margin-bottom:32px}
+.dl-list{max-width:760px;margin:0 auto;display:grid;gap:12px;text-align:left}
+.dl-item{background:var(--night-raised);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:18px 22px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px}
+.dl-item.featured{border-color:rgba(91,103,234,.42);background:linear-gradient(180deg,rgba(91,103,234,.08),rgba(30,30,42,1))}
+.dl-item b{display:flex;align-items:center;gap:8px;font-size:15.5px;font-weight:500;color:var(--ink)}
+.dl-item .tag{font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:var(--r-pill);background:rgba(156,180,232,.14);color:var(--periwinkle)}
+.dl-item.featured .tag{background:var(--primary);color:var(--on-primary)}
+.dl-item small{display:block;font-size:13px;color:var(--fog);margin-top:4px}
+.dl-item .actions{display:flex;gap:8px;flex-wrap:wrap}
 .sha{margin-top:24px;display:inline-flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:100%;
   background:var(--night-raised);border-radius:var(--r-pill);padding:6px 8px 6px 16px}
 .sha span{font-size:12px;color:var(--slate);letter-spacing:.04em}
-.companion{margin:28px auto 0;max-width:640px;background:var(--night-raised);border:1px solid var(--line);border-radius:var(--r-lg);
-  padding:18px 22px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;text-align:left}
-.companion b{display:block;font-size:14.5px;font-weight:500;color:var(--ink)}
-.companion small{display:block;font-size:12.5px;color:var(--slate);margin-top:2px}
-.companion .actions{display:flex;gap:8px;flex-wrap:wrap}
 
 footer{padding:36px 0 44px;font-size:13px;color:var(--slate);background:var(--night-deep)}
 footer .wrap{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between}
@@ -324,11 +328,39 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
 <section class="closing" id="download-end" style="border-bottom:0">
   <div class="wrap">
     <img src="icon.webp" width="384" height="384" alt="Geoshift 图标">
-    <h2>下载 Geoshift <span class="js-ver">v3.5.8</span></h2>
-    <p><span class="js-meta">28.8 MB · 2026-11-22</span> · arm64 · Android 8.0+ · LSPosed 2.2+ / Vector</p>
-    <div class="cta">
-      <a class="btn lg primary js-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.8/Geoshift-3.5.8.apk" rel="noopener">国内加速下载</a>
-      <a class="btn lg js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.8/Geoshift-3.5.8.apk" rel="noopener">GitHub 直连下载</a>
+    <h2>全部下载与校验</h2>
+    <p class="sec-lead">所有安装包共用同一签名。国内网络建议先选好加速线路，再点对应下载按钮。</p>
+    <div class="dl-list">
+      <div class="dl-item featured">
+        <div>
+          <b>Geoshift <span class="tag"><span class="js-ver">v3.5.8</span></span></b>
+          <small><span class="js-meta">28.8 MB · 2026-11-22</span> · arm64 · Android 8.0+ · LSPosed 2.2+ / Vector</small>
+        </div>
+        <div class="actions">
+          <a class="btn sm primary js-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.8/Geoshift-3.5.8.apk" rel="noopener">国内加速</a>
+          <a class="btn sm js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.8/Geoshift-3.5.8.apk" rel="noopener">GitHub 直连</a>
+        </div>
+      </div>
+      <div class="dl-item">
+        <div>
+          <b>GeoshiftMotion <span class="tag">可选 · 步频联动</span></b>
+          <small>33 KB · 无桌面图标 · 在框架中仅勾选需要步频的目标应用</small>
+        </div>
+        <div class="actions">
+          <a class="btn sm js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk" rel="noopener">国内加速</a>
+          <a class="btn sm js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk" rel="noopener">GitHub 直连</a>
+        </div>
+      </div>
+      <div class="dl-item">
+        <div>
+          <b>GeoProbe <span class="tag">可选 · 定位探针</span></b>
+          <small>5.6 MB · 以普通应用身份读取全部定位线索，验证模块是否完整生效</small>
+        </div>
+        <div class="actions">
+          <a class="btn sm js-probe-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoProbe.apk" rel="noopener">国内加速</a>
+          <a class="btn sm js-probe-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoProbe.apk" rel="noopener">GitHub 直连</a>
+        </div>
+      </div>
     </div>
     <div class="dlmeta">
       <label>加速线路
@@ -342,17 +374,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
       <a class="js-notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener">更新说明</a>
       <a href="https://github.com/languang666/geoshift/releases" rel="noopener">历史版本</a>
     </div>
-    <div class="companion">
-      <div>
-        <b>可选配套：GeoshiftMotion 步频模块</b>
-        <small>33 KB · 无桌面图标 · 在框架中仅勾选需要步频的目标应用</small>
-      </div>
-      <div class="actions">
-        <a class="btn sm js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk" rel="noopener">国内加速下载</a>
-        <a class="btn sm js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk" rel="noopener">GitHub 直连下载</a>
-      </div>
-    </div>
-    <div class="sha js-sha-box"><span>SHA-256</span><code class="js-sha">bba4f45affcc6bf7cb9ced19b0d3914c3a6ab33cbc006278bf72374caf8c9694</code><button class="btn sm" id="copySha" type="button">复制</button></div>
+    <div class="sha js-sha-box"><span>Geoshift SHA-256</span><code class="js-sha">bba4f45affcc6bf7cb9ced19b0d3914c3a6ab33cbc006278bf72374caf8c9694</code><button class="btn sm" id="copySha" type="button">复制</button></div>
   </div>
 </section>
 </main>
@@ -397,6 +419,8 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
     set(".js-motion-cn", function(a){ a.href = proxy + state.motion; });
     set(".js-motion-gh", function(a){ a.href = state.motion; });
     set(".js-probe", function(a){ a.href = (inCN ? proxy : "") + state.probe; });
+    set(".js-probe-cn", function(a){ a.href = proxy + state.probe; });
+    set(".js-probe-gh", function(a){ a.href = state.probe; });
     set(".js-ver", function(e){ e.textContent = state.tag; });
   }
   set(".js-proxy", function(s){ s.addEventListener("change", function(){ proxy = s.value; store("gs-proxy", proxy); render(); }); });
