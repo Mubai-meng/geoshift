@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Geoshift"
-include(":app")
+include(":app", ":motion")

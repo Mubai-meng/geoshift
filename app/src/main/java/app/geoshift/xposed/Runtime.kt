@@ -21,6 +21,8 @@ object Bridge {
     const val KEY_CONFIG = "config"
     /** sendExtraCommand provider name for the diagnostics / joystick channel. */
     const val COMMAND = "geoshift"
+    /** Shared key for the optional GeoshiftMotion companion module's read-only MOTION query. */
+    const val MOTION_KEY = "geoshift.motion.v1"
     const val SELF = "app.geoshift"
     fun routeFile(id: String) = "route-$id.json"
     val ROUTE_SERIALIZER = ListSerializer(LatLon.serializer())

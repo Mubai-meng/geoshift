@@ -5,9 +5,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import app.geoshift.core.LatLon
+import app.geoshift.xposed.AppScope
 import app.geoshift.xposed.Bridge
 import app.geoshift.xposed.Contexts
 import app.geoshift.xposed.Diag
+import app.geoshift.xposed.Fakes
 import app.geoshift.xposed.Hooker
 import app.geoshift.xposed.Log
 import app.geoshift.xposed.Reflect
@@ -68,15 +70,29 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
         hooks.declared(service, "sendExtraCommand") { m ->
             hooks.before(m) { call ->
                 if (call.args.size < 3 || call.args[0] != Bridge.COMMAND) return@before
+                val cmd = call.args[1]?.toString().orEmpty()
+                val extras = call.args[2] as? Bundle
                 val uid = Binder.getCallingUid()
+                // Read-only motion sync for the optional GeoshiftMotion companion module (only while
+                // active for this app and carrying MOTION_KEY; ordinary apps get stock behaviour).
+                if (cmd == "MOTION" && extras != null && extras.getString("k") == Bridge.MOTION_KEY) {
+                    val c = Sim.config
+                    if (!c.active || !AppScope.covers(c, uid)) return@before
+                    val fix = runCatching { Fakes.fix(c, "gps") }.getOrNull() ?: return@before
+                    extras.putBoolean("active", true)
+                    extras.putDouble("speed", (fix.speed ?: 0f).toDouble())
+                    extras.putLong("seed", c.noiseSeed)
+                    call.result = if (call.returnType == java.lang.Boolean.TYPE) true else null
+                    return@before
+                }
                 val own = uid == ownUid() || (uid >= 10000 && uid == ownUid(refreshIfStale = true))
                 if (!own && uid >= 10000) return@before // Stock behaviour for everyone else.
                 call.thisObject?.let { location.attachService(it) }
                 call.result = if (call.returnType == java.lang.Boolean.TYPE) true else null
-                val extras = call.args[2] as? Bundle ?: return@before
+                if (extras == null) return@before
                 try {
-                    handle(call.args[1].toString(), extras, own)
-                    if (own && call.args[1] == "MOVE") location.schedule(0)
+                    handle(cmd, extras, own)
+                    if (own && cmd == "MOVE") location.schedule(0)
                 } catch (e: Throwable) {
                     extras.putString("error", "${e.javaClass.simpleName}: ${e.message}")
                 }
