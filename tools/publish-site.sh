@@ -24,6 +24,7 @@ page, rel_path = sys.argv[1], sys.argv[2]
 rel = json.load(open(rel_path))
 tag = rel["tagName"]
 apk = next(a for a in rel["assets"] if re.fullmatch(r"Geoshift-[\d.]+\.apk", a["name"]))
+motion = next((a for a in rel["assets"] if re.fullmatch(r"GeoshiftMotion-[\d.]+\.apk", a["name"])), None)
 m = re.search(r"Geoshift APK SHA-256[^`]*`([0-9a-f]{64})`", rel.get("body") or "", re.I)
 sha = m.group(1) if m else (apk.get("digest") or "").removeprefix("sha256:")
 meta = f'{apk["size"] / 1048576:.1f} MB · {rel["publishedAt"][:10]}'
@@ -35,6 +36,8 @@ subs = [
     (r'(class="js-meta">)[^<]*(<)', rf"\g<1>{meta}\g<2>"),
     (r'(tag: ")v[\d.]+(")', rf"\g<1>{tag}\g<2>"),
 ]
+if motion:
+    subs.append((r"/download/v[\d.]+/GeoshiftMotion-[\d.]+\.apk", f"/download/{tag}/{motion['name']}"))
 if sha:
     subs.append((r'(class="js-sha">)[0-9a-f]{64}(<)', rf"\g<1>{sha}\g<2>"))
 else:  # 没有校验值就不显示旧版本的
