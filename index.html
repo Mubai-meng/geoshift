@@ -292,7 +292,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
         <h3><i class="dot w"></i>无法伪装</h3>
         <div class="row"><b>公网 IP</b><span>需要对应地区的代理 / VPN；「系统诊断」里有出口 IP 校验</span></div>
         <div class="row"><b>运营商代码</b><span>来自 SIM 卡的系统属性</span></div>
-        <div class="row"><b>传感器</b><span>加速度计、陀螺仪、计步不做改写。静止打卡请用静止模拟，需要轨迹时尽量用步行速度</span></div>
+        <div class="row"><b>传感器</b><span>主模块保持零注入，不改写加速度计、陀螺仪和计步。静止打卡请用静止模拟；如需步行/跑步步频联动，可另装独立的 <a class="js-motion" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">GeoshiftMotion 配套模块</a></span></div>
       </div>
     </div>
   </div>
@@ -308,6 +308,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
       <details><summary>从 2.x 升级要注意什么？</summary><p>3.0 起不沿用 2.x 的数据。升级前在 2.x「设置 → 导出备份」，装好新版后「设置 → 导入备份」。框架也要换成 LSPosed 2.2+ 或 Vector。</p></details>
       <details><summary>一定要填高德 Key 吗？</summary><p>不用。不填时地图、搜索、地址和道路路线使用 OpenStreetMap 体系的公共服务。填了自己申请的高德 Android Key 后，「高德地图」图层改用官方 SDK，搜索和路线也走高德；App 里「设置 → 高德 Key」有分步申请引导。</p></details>
       <details><summary>只想让某几个应用拿到模拟位置？</summary><p>在「设置 → 模拟范围」改为「仅选中的应用」，其他应用（如导航）继续拿到真实数据。使用谷歌融合定位的应用要同时选中「Google Play 服务」。</p></details>
+      <details><summary>走路 / 跑步时如何模拟步频？</summary><p>为了保住主模块的「系统侧零注入」隐蔽性，步频模拟拆成了独立的可选配套模块 <b>GeoshiftMotion</b>（仅 33 KB，无桌面图标）。安装后在 LSPosed 2.2+ / Vector 里启用并<b>只勾选需要步频的目标应用</b>，即可自动跟随 Geoshift 的实时模拟速度合成步数、步频与三轴步态加速度（遇红灯/暂停自动停步，车速/飞行不计步）。<a class="js-motion" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">下载 GeoshiftMotion</a></p></details>
       <details><summary>GeoProbe 是什么？</summary><p>独立的探针应用，以普通应用身份读取全部定位线索并显示是否为模拟值，用来验证模块在你的手机上是否完整生效。<a class="js-probe" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoProbe.apk" style="color:var(--fog);text-decoration:underline;text-underline-offset:3px">下载 GeoProbe</a></p></details>
       <details><summary>支持 32 位手机吗？</summary><p>当前版本只打包 64 位 ARM（arm64-v8a）。32 位设备可在<a href="https://github.com/languang666/geoshift/releases" rel="noopener" style="color:var(--fog);text-decoration:underline;text-underline-offset:3px">历史版本</a>里找 3.0.5。</p></details>
     </div>
@@ -331,6 +332,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
           <option value="https://ghproxy.net/">ghproxy.net</option>
         </select>
       </label>
+      <a class="js-motion" href="https://gh-proxy.com/https://github.com/languang666/geoshift/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk" rel="noopener">步频配套模块 (GeoshiftMotion)</a>
       <a class="js-notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener">更新说明</a>
       <a href="https://github.com/languang666/geoshift/releases" rel="noopener">历史版本</a>
     </div>
@@ -353,6 +355,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
   var state = {
     tag: "v3.5.8",
     apk: "https://github.com/" + REPO + "/releases/download/v3.5.8/Geoshift-3.5.8.apk",
+    motion: "https://github.com/" + REPO + "/releases/download/v3.5.8/GeoshiftMotion-1.0.0.apk",
     probe: "https://github.com/" + REPO + "/releases/download/v3.5.8/GeoProbe.apk"
   };
   function all(sel){ return [].slice.call(document.querySelectorAll(sel)); }
@@ -375,6 +378,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
     set(".js-proxy", function(s){ s.value = proxy; });
     set(".js-cn", function(a){ a.href = proxy + state.apk; });
     set(".js-gh", function(a){ a.href = state.apk; });
+    set(".js-motion", function(a){ a.href = (inCN ? proxy : "") + state.motion; });
     set(".js-probe", function(a){ a.href = (inCN ? proxy : "") + state.probe; });
     set(".js-ver", function(e){ e.textContent = state.tag; });
   }
@@ -392,13 +396,15 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
   fetch("https://api.github.com/repos/" + REPO + "/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then(function(r){ if (!r.ok) throw r.status; return r.json(); })
     .then(function(rel){
-      var apk = null, probe = null;
+      var apk = null, motion = null, probe = null;
       (rel.assets || []).forEach(function(a){
         if (/^Geoshift-[\d.]+\.apk$/.test(a.name)) apk = a;
+        else if (/^GeoshiftMotion-[\d.]+\.apk$/.test(a.name)) motion = a;
         else if (a.name === "GeoProbe.apk") probe = a;
       });
       if (!apk) return;
       state.tag = rel.tag_name; state.apk = apk.browser_download_url;
+      if (motion) state.motion = motion.browser_download_url;
       if (probe) state.probe = probe.browser_download_url;
       var meta = (apk.size / 1048576).toFixed(1) + " MB" + (rel.published_at ? " · " + rel.published_at.slice(0, 10) : "");
       set(".js-meta", function(e){ e.textContent = meta; });
