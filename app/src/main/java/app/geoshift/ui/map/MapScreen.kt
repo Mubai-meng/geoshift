@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,12 +76,14 @@ import app.geoshift.core.Geo
 import app.geoshift.core.LatLon
 import app.geoshift.data.Place
 import app.geoshift.data.RoadProfile
+import app.geoshift.data.SavedRoute
 import app.geoshift.map.MapSource
 import app.geoshift.ui.AppState
 import app.geoshift.ui.AppViewModel
 import app.geoshift.ui.components.InputDialog
 import app.geoshift.ui.components.formatDistance
 import app.geoshift.ui.components.glass
+import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.isDark
 import app.geoshift.ui.theme.palette
 import kotlinx.coroutines.CancellationException
@@ -87,6 +91,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.pow
 
 @Composable
 fun MapScreen(
@@ -98,12 +104,18 @@ fun MapScreen(
     onOpenSetup: () -> Unit,
     onOpenAmapKey: () -> Unit = {},
     visible: Boolean = true,
+    editRouteRequest: SavedRoute? = null,
+    onEditRouteConsumed: () -> Unit = {},
 ) {
     val r = s.runtime
     var selected by remember { mutableStateOf<LatLon?>(null) }
     var address by remember { mutableStateOf("") }
     var addressLoading by remember { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf(false) }
+    var editingRouteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingRouteName by rememberSaveable { mutableStateOf("") }
+    var showNodes by remember { mutableStateOf(false) }
+    var tappedNodeAction by remember { mutableStateOf<Pair<Int, LatLon>?>(null) }
     val draft = remember { mutableStateListOf<LatLon>() }
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
@@ -194,6 +206,37 @@ fun MapScreen(
         }
     }
 
+    fun exitRouteEditor() {
+        editing = false
+        editingRouteId = null
+        editingRouteName = ""
+        showNodes = false
+        tappedNodeAction = null
+        draft.clear()
+    }
+
+    LaunchedEffect(editRouteRequest) {
+        val req = editRouteRequest ?: return@LaunchedEffect
+        selected = null
+        query = ""
+        searchGeneration++
+        searching = false
+        results = emptyList()
+        focus.clearFocus()
+        draft.clear()
+        val initialNodes = if (req.profile.road && req.waypoints.isNotEmpty()) req.waypoints else req.points
+        draft.addAll(initialNodes)
+        editingRouteId = req.id
+        editingRouteName = req.name
+        showNodes = false
+        editing = true
+        if (s.settings.roadProfile != req.profile) {
+            vm.run { store.updateSettings { it.copy(roadProfile = req.profile) } }
+        }
+        initialNodes.firstOrNull()?.let { onCenter(CenterRequest(it, 15.5)) }
+        onEditRouteConsumed()
+    }
+
     // Back closes what is open on the map before leaving the app: results, the picked point, then the
     // route editor (twice when it holds points, so they are not lost by accident).
     var backArmedAt by remember { mutableLongStateOf(0L) }
@@ -201,7 +244,7 @@ fun MapScreen(
         when {
             results.isNotEmpty() -> { searchGeneration++; searching = false; results = emptyList(); focus.clearFocus() }
             selected != null -> selected = null
-            draft.isEmpty() || SystemClock.elapsedRealtime() - backArmedAt < 2000 -> { editing = false; draft.clear() }
+            draft.isEmpty() || SystemClock.elapsedRealtime() - backArmedAt < 2000 -> exitRouteEditor()
             else -> { backArmedAt = SystemClock.elapsedRealtime(); vm.toast("再按一次返回将放弃本次路线编辑") }
         }
     }
@@ -278,6 +321,28 @@ fun MapScreen(
         focus.clearFocus()
     }
 
+    fun onMapTap(p: LatLon) {
+        if (!editing) { select(p); return }
+        if (draft.isNotEmpty()) {
+            val metersPerPx = 156543.03392 * cos(Math.toRadians(p.lat)) / 2.0.pow(camera.zoom)
+            val hitMeters = (metersPerPx * 24.0 * density.density).coerceAtLeast(8.0)
+            var nearestIdx = -1
+            var nearestDist = Double.MAX_VALUE
+            for (i in draft.indices) {
+                val d = Geo.distance(p, draft[i])
+                if (d <= hitMeters && d < nearestDist) {
+                    nearestDist = d
+                    nearestIdx = i
+                }
+            }
+            if (nearestIdx >= 0) {
+                tappedNodeAction = nearestIdx to p
+                return
+            }
+        }
+        draft.add(p)
+    }
+
     Box(Modifier.fillMaxSize()) {
         if (officialAmap) AmapMap(
             modifier = Modifier.fillMaxSize(), sdk = sdk, keyRevision = sdkKey,
@@ -287,7 +352,7 @@ fun MapScreen(
             dark = isDark(s.settings.theme), styleId = sdkStyleId, camera = camera, center = centerRequest,
             logoBottomMargin = bottomCardHeight, visible = visible,
             onBearingChanged = { mapBearing = it },
-            onTap = { p -> if (editing) draft.add(p) else select(p) },
+            onTap = ::onMapTap,
             onLongPress = { p -> if (!editing) select(p) },
             onFailure = { message -> sdkFailed = true; vm.toast("$message，已改用高德瓦片地图") },
             onSlow = { vm.toast("高德官方地图加载较慢，请检查网络；仍是空白可在图层菜单换个图层，或到「设置 → 高德 Key」点「验证 Key」") },
@@ -298,7 +363,7 @@ fun MapScreen(
             online = s.settings.privacyAccepted, dark = isDark(s.settings.theme), source = s.settings.mapSource,
             camera = camera, center = centerRequest, visible = visible,
             onBearingChanged = { mapBearing = it },
-            onTap = { p -> if (editing) draft.add(p) else select(p) },
+            onTap = ::onMapTap,
             onLongPress = { p -> if (!editing) select(p) },
         )
 
@@ -453,8 +518,13 @@ fun MapScreen(
                 }
                 ToolGroup {
                     MapTool(Icons.Rounded.Route, "路线编辑", active = editing) {
-                        if (!editing) { draft.clear(); selected = null; query = ""; searchGeneration++; searching = false; results = emptyList(); focus.clearFocus() }
-                        editing = !editing
+                        if (!editing) {
+                            draft.clear(); editingRouteId = null; editingRouteName = ""; showNodes = false
+                            selected = null; query = ""; searchGeneration++; searching = false; results = emptyList(); focus.clearFocus()
+                            editing = true
+                        } else {
+                            exitRouteEditor()
+                        }
                     }
                     ToolDivider()
                     MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.joystick) {
@@ -515,7 +585,9 @@ fun MapScreen(
         ) { m ->
             when (m) {
                 2 -> RouteEditorCard(
-                    count = draft.size,
+                    editingName = editingRouteName,
+                    nodes = waypoints,
+                    showNodes = showNodes,
                     length = editLength,
                     profile = profile,
                     // "沿 OpenStreetMap 道路" / "沿高德道路": space only around Latin names.
@@ -529,9 +601,17 @@ fun MapScreen(
                         else -> "已沿${spaced(router.source)}道路连接"
                     },
                     roadFailed = roadError != null,
+                    onToggleNodes = { showNodes = !showNodes },
+                    onFocusNode = { p -> onCenter(CenterRequest(p, maxOf(camera.zoom, 16.0))) },
+                    onRemoveNode = { idx ->
+                        if (idx in draft.indices) {
+                            draft.removeAt(idx)
+                            if (draft.isEmpty()) showNodes = false
+                        }
+                    },
                     onProfile = { p -> vm.run { store.updateSettings { it.copy(roadProfile = p) } } },
                     onUndo = { if (draft.isNotEmpty()) draft.removeAt(draft.lastIndex) },
-                    onClear = { draft.clear() },
+                    onClear = { draft.clear(); showNodes = false },
                     onSave = {
                         when {
                             draft.size < 2 -> vm.toast("请至少选择两个路线点")
@@ -540,7 +620,7 @@ fun MapScreen(
                             else -> routeDialog = true
                         }
                     },
-                    onClose = { editing = false; draft.clear() },
+                    onClose = ::exitRouteEditor,
                 )
                 1 -> if (sel != null) PreviewCard(
                     point = sel,
@@ -555,6 +635,9 @@ fun MapScreen(
                     onStart = { vm.run("模拟定位已开启", onDone = { _: Unit -> selected = null }) { startPoint(sel) } },
                     onRouteTo = {
                         draft.clear()
+                        editingRouteId = null
+                        editingRouteName = ""
+                        showNodes = false
                         draft.add(r.position)
                         draft.add(sel)
                         selected = null
@@ -598,16 +681,45 @@ fun MapScreen(
             if (p != null) vm.run<String>("已收藏") { savePlace(name, p, address) }
         }
     }
+    tappedNodeAction?.let { (idx, tappedPoint) ->
+        val label = when {
+            idx == 0 -> "起点（#1）"
+            idx == draft.lastIndex && draft.size > 1 -> "终点（#${idx + 1}）"
+            else -> "节点 #${idx + 1}"
+        }
+        AlertDialog(
+            onDismissRequest = { tappedNodeAction = null },
+            title = { Text("已点中$label") },
+            text = { Text("要删除这个路线节点，还是在此处附近添加一个新的途经点？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (idx in draft.indices) draft.removeAt(idx)
+                    tappedNodeAction = null
+                }) { Text("删除此节点", color = Danger) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { tappedNodeAction = null }) { Text("取消") }
+                    TextButton(onClick = {
+                        draft.add(tappedPoint)
+                        tappedNodeAction = null
+                    }) { Text("添加新点") }
+                }
+            },
+        )
+    }
     if (routeDialog) {
         val points = editRoute
         val via = waypoints
         val kind = profile
-        val title = when {
+        val existingId = editingRouteId
+        val title = if (existingId != null && editingRouteName.isNotEmpty()) editingRouteName
+        else when {
             kind == RoadProfile.STRAIGHT -> "路线 ${via.size} 点"
             else -> "${kind.label}路线 ${formatDistance(editLength)}"
         }
         InputDialog(
-            "保存路线", initial = title, label = "名称",
+            if (existingId != null) "保存路线修改" else "保存路线", initial = title, label = "名称",
             hint = (when {
                 kind == RoadProfile.FLY -> "飞行 · ${via.size} 个途经点"
                 !kind.road -> "共 ${via.size} 个点"
@@ -615,7 +727,11 @@ fun MapScreen(
             }) + " · ${formatDistance(editLength)}路线",
             onDismiss = { routeDialog = false },
         ) { name ->
-            vm.run<String>("路线保存成功", onDone = { editing = false; draft.clear() }) { saveRoute(name, points, via, kind) }
+            if (existingId != null) {
+                vm.run("路线已更新", onDone = { _: Unit -> exitRouteEditor() }) { updateRoute(existingId, name, points, via, kind) }
+            } else {
+                vm.run<String>("路线保存成功", onDone = { exitRouteEditor() }) { saveRoute(name, points, via, kind) }
+            }
         }
     }
 }

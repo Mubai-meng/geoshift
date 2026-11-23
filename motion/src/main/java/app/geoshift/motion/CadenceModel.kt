@@ -91,3 +91,39 @@ class StepAccumulator {
         return delta
     }
 }
+
+/**
+ * Keeps STEP_COUNTER strictly monotonic without sudden baseline jumps if synthetic steps start
+ * arriving before the first hardware step-counter event.
+ */
+class StepCounterTracker {
+    private var firstHardware = -1f
+    private var maxHardware = 0f
+    private var origin = -1f
+    private var lastEmitted = -1f
+
+    @Synchronized
+    fun onHardware(raw: Float, syntheticTotal: Long): Float {
+        if (firstHardware < 0f) {
+            firstHardware = raw
+            maxHardware = raw
+            if (origin < 0f) origin = raw
+        } else if (raw > maxHardware) {
+            maxHardware = raw
+        }
+        return compute(syntheticTotal)
+    }
+
+    @Synchronized
+    fun onSynthetic(syntheticTotal: Long): Float {
+        if (origin < 0f) origin = 0f
+        return compute(syntheticTotal)
+    }
+
+    private fun compute(syntheticTotal: Long): Float {
+        val hwDelta = if (firstHardware >= 0f) (maxHardware - firstHardware).coerceAtLeast(0f) else 0f
+        val value = maxOf(lastEmitted, origin + hwDelta + syntheticTotal.toFloat())
+        lastEmitted = value
+        return value
+    }
+}

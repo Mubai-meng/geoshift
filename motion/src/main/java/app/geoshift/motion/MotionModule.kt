@@ -7,6 +7,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
@@ -28,15 +29,19 @@ class MotionModule : XposedModule() {
     private var installed = false
     private var processName = ""
 
-    private data class MotionState(val active: Boolean, val speed: Double, val seed: Long, val atMs: Long)
+    private data class MotionState(val active: Boolean, val foot: Boolean, val speed: Double, val seed: Long, val atMs: Long) {
+        val effectiveSpeed: Double get() = if (active && foot) speed else 0.0
+    }
     private class TrackedQueue(val handles: ConcurrentHashMap<Int, Int> = ConcurrentHashMap())
 
-    @Volatile private var motion = MotionState(false, 0.0, 0L, 0L)
+    @Volatile private var motion = MotionState(false, false, 0.0, 0L, 0L)
     @Volatile private var appContext: Context? = null
-    @Volatile private var hardwareStepBase = -1f
 
     private val queues = Collections.synchronizedMap(WeakHashMap<Any, TrackedQueue>())
+    private val queueHandlers = Collections.synchronizedMap(WeakHashMap<Any, Handler>())
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private val accumulator = StepAccumulator()
+    private val counterTracker = StepCounterTracker()
     private val dispatchingSelf = ThreadLocal<Boolean>()
     private var dispatchMethod: Method? = null
     private var sensorHandleMethod: Method? = null
@@ -65,6 +70,20 @@ class MotionModule : XposedModule() {
             dispatchMethod = sensorQueue.declaredMethods.firstOrNull {
                 it.name == "dispatchSensorEvent" && it.parameterTypes.size == 4
             }?.apply { isAccessible = true }
+
+            // Capture each event queue's Looper so synthetic events are dispatched on the exact
+            // thread the target app registered its SensorEventListener on.
+            for (ctor in baseQueue.declaredConstructors) {
+                hook(ctor).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept { chain ->
+                    val res = chain.proceed()
+                    val q = chain.thisObject
+                    val looper = chain.args.firstOrNull { it is Looper } as? Looper
+                    if (q != null && looper != null) {
+                        queueHandlers[q] = Handler(looper)
+                    }
+                    res
+                }
+            }
 
             // Track active sensor registrations so we can actively drive STEP_COUNTER / STEP_DETECTOR
             // even when the phone is sitting still on a desk.
@@ -114,11 +133,11 @@ class MotionModule : XposedModule() {
                         when (type) {
                             Sensor.TYPE_STEP_COUNTER -> {
                                 if (values.isNotEmpty()) {
-                                    if (hardwareStepBase < 0f || values[0] > hardwareStepBase) hardwareStepBase = values[0]
                                     val synth = accumulator.totalSyntheticSteps
-                                    if (synth > 0L) {
+                                    val adjusted = counterTracker.onHardware(values[0], synth)
+                                    if (adjusted != values[0]) {
                                         val copy = values.clone()
-                                        copy[0] = hardwareStepBase + synth.toFloat()
+                                        copy[0] = adjusted
                                         val nextArgs = chain.args.toTypedArray()
                                         nextArgs[1] = copy
                                         return@intercept chain.proceed(nextArgs)
@@ -126,9 +145,10 @@ class MotionModule : XposedModule() {
                                 }
                             }
                             Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_LINEAR_ACCELERATION -> {
-                                if (state.active && values.size >= 3) {
+                                val effSpeed = state.effectiveSpeed
+                                if (effSpeed > 0.0 && values.size >= 3) {
                                     val nowMs = SystemClock.elapsedRealtime()
-                                    val delta = CadenceModel.gaitDelta(accumulator.phaseRad, state.speed, state.seed, nowMs / 1000.0)
+                                    val delta = CadenceModel.gaitDelta(accumulator.phaseRad, effSpeed, state.seed, nowMs / 1000.0)
                                     if (delta[0] != 0f || delta[1] != 0f || delta[2] != 0f) {
                                         val copy = values.clone()
                                         copy[0] += delta[0]
@@ -197,12 +217,10 @@ class MotionModule : XposedModule() {
                 motion = queryGeoshift(nowMs)
             }
             val st = motion
-            val steps = if (st.active) accumulator.advance(nowMs, st.speed, st.seed) else {
-                accumulator.advance(nowMs, 0.0, st.seed)
-                0
-            }
+            val effSpeed = st.effectiveSpeed
+            val steps = accumulator.advance(nowMs, effSpeed, st.seed)
             if (steps > 0) emitSteps(steps)
-            val delayMs = if (st.active && CadenceModel.cadenceHz(st.speed, st.seed, nowMs / 1000.0) > 0.0) STEP_TICK_MS else IDLE_TICK_MS
+            val delayMs = if (effSpeed > 0.0 && CadenceModel.cadenceHz(effSpeed, st.seed, nowMs / 1000.0) > 0.0) STEP_TICK_MS else IDLE_TICK_MS
             worker.postDelayed(this, delayMs)
         }
     }
@@ -214,37 +232,42 @@ class MotionModule : XposedModule() {
         }
         if (snapshot.isEmpty()) return
         val ts = SystemClock.elapsedRealtimeNanos()
-        val base = if (hardwareStepBase >= 0f) hardwareStepBase else 0f
-        val total = base + accumulator.totalSyntheticSteps.toFloat()
+        val total = counterTracker.onSynthetic(accumulator.totalSyntheticSteps)
 
-        dispatchingSelf.set(true)
-        try {
-            for ((queue, handles) in snapshot) {
-                for ((handle, type) in handles) {
-                    when (type) {
-                        Sensor.TYPE_STEP_DETECTOR -> repeat(newSteps) {
-                            runCatching { dm.invoke(queue, handle, floatArrayOf(1.0f), SensorManager.SENSOR_STATUS_ACCURACY_HIGH, ts) }
-                        }
-                        Sensor.TYPE_STEP_COUNTER -> {
-                            runCatching { dm.invoke(queue, handle, floatArrayOf(total), SensorManager.SENSOR_STATUS_ACCURACY_HIGH, ts) }
+        for ((queue, handles) in snapshot) {
+            val targetHandler = queueHandlers[queue] ?: mainHandler
+            targetHandler.post {
+                val activeHandles = synchronized(queues) { queues[queue]?.handles } ?: return@post
+                dispatchingSelf.set(true)
+                try {
+                    for ((handle, type) in handles) {
+                        if (!activeHandles.containsKey(handle)) continue
+                        when (type) {
+                            Sensor.TYPE_STEP_DETECTOR -> repeat(newSteps) {
+                                runCatching { dm.invoke(queue, handle, floatArrayOf(1.0f), SensorManager.SENSOR_STATUS_ACCURACY_HIGH, ts) }
+                            }
+                            Sensor.TYPE_STEP_COUNTER -> {
+                                runCatching { dm.invoke(queue, handle, floatArrayOf(total), SensorManager.SENSOR_STATUS_ACCURACY_HIGH, ts) }
+                            }
                         }
                     }
+                } finally {
+                    dispatchingSelf.remove()
                 }
             }
-        } finally {
-            dispatchingSelf.remove()
         }
     }
 
     private fun queryGeoshift(nowMs: Long): MotionState {
-        val ctx = currentContext() ?: return MotionState(false, 0.0, 0L, nowMs)
+        val ctx = currentContext() ?: return MotionState(false, false, 0.0, 0L, nowMs)
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            ?: return MotionState(false, 0.0, 0L, nowMs)
+            ?: return MotionState(false, false, 0.0, 0L, nowMs)
         val extras = Bundle().apply { putString("k", MOTION_KEY) }
         val ok = runCatching { lm.sendExtraCommand(COMMAND, "MOTION", extras) }.getOrDefault(false)
-        if (!ok || !extras.getBoolean("active", false)) return MotionState(false, 0.0, 0L, nowMs)
+        if (!ok || !extras.getBoolean("active", false)) return MotionState(false, false, 0.0, 0L, nowMs)
         return MotionState(
             active = true,
+            foot = extras.getBoolean("foot", true),
             speed = extras.getDouble("speed", 0.0),
             seed = extras.getLong("seed", 0L),
             atMs = nowMs,

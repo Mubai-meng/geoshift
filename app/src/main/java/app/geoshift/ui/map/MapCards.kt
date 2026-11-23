@@ -1,5 +1,6 @@
 package app.geoshift.ui.map
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +28,8 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Directions
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PinDrop
@@ -34,6 +39,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -41,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,6 +64,7 @@ import app.geoshift.core.LatLon
 import app.geoshift.data.RoadProfile
 import app.geoshift.ui.AppState
 import app.geoshift.ui.components.CoordinateRow
+import app.geoshift.ui.components.formatCoord
 import app.geoshift.ui.components.formatDistance
 import app.geoshift.ui.components.glass
 import app.geoshift.ui.theme.Danger
@@ -298,24 +307,86 @@ private fun ActionTile(icon: ImageVector, label: String, modifier: Modifier, onC
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RouteEditorCard(
-    count: Int,
+    editingName: String,
+    nodes: List<LatLon>,
+    showNodes: Boolean,
     length: Double,
     profile: RoadProfile,
     roadStatus: String?,
     roadFailed: Boolean,
+    onToggleNodes: () -> Unit,
+    onFocusNode: (LatLon) -> Unit,
+    onRemoveNode: (Int) -> Unit,
     onProfile: (RoadProfile) -> Unit,
     onUndo: () -> Unit,
     onClear: () -> Unit,
     onSave: () -> Unit,
     onClose: () -> Unit,
 ) {
+    val count = nodes.size
     BottomCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("路线编辑", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    if (editingName.isNotEmpty()) "编辑路线 · $editingName" else "路线编辑",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text("$count 个点位 · ${formatDistance(length)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
+            if (count > 0) {
+                TextButton(onClick = onToggleNodes, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                    Text("节点", maxLines = 1)
+                    Icon(if (showNodes) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+                }
+            }
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "退出编辑") }
+        }
+        AnimatedVisibility(showNodes && nodes.isNotEmpty()) {
+            LazyColumn(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp).heightIn(max = 176.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow),
+            ) {
+                itemsIndexed(nodes, key = { i, p -> "$i:${p.lat}:${p.lon}" }) { index, p ->
+                    val tag = when {
+                        index == 0 -> "起点"
+                        index == nodes.lastIndex && nodes.size > 1 -> "终点"
+                        else -> "#${index + 1}"
+                    }
+                    val tagColor = when {
+                        index == 0 -> MaterialTheme.colorScheme.tertiary
+                        index == nodes.lastIndex && nodes.size > 1 -> Danger
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onFocusNode(p) }.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            tag,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = tagColor,
+                            modifier = Modifier.width(36.dp),
+                        )
+                        Text(
+                            formatCoord(p.lat, p.lon),
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { onRemoveNode(index) }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Rounded.Close, "删除节点 $tag", tint = Danger, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    if (index < nodes.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
+            }
         }
         // Five choices do not fit a narrow phone; let the row scroll instead of clipping.
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -339,7 +410,8 @@ internal fun RouteEditorCard(
                 Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("清空", maxLines = 1, softWrap = false)
             }
             Button(onClick = onSave, enabled = count >= 2, modifier = Modifier.weight(1f), contentPadding = compact) {
-                Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("保存路线", maxLines = 1, softWrap = false)
+                Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
+                Text(if (editingName.isNotEmpty()) "保存修改" else "保存路线", maxLines = 1, softWrap = false)
             }
         }
     }

@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +29,8 @@ import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Place
@@ -36,7 +38,9 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Upload
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -79,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import app.geoshift.core.LatLon
 import app.geoshift.ui.AppState
 import app.geoshift.data.RoadProfile
+import app.geoshift.data.SavedRoute
 import app.geoshift.ui.AppViewModel
 import app.geoshift.ui.components.Segmented
 import app.geoshift.ui.components.IosSwitch
@@ -92,7 +97,7 @@ import app.geoshift.ui.components.formatDistance
 import app.geoshift.ui.components.formatTime
 import app.geoshift.ui.theme.Danger
 
-private enum class Sort(val label: String) { NEWEST("最新添加"), OLDEST("最早添加"), NAME("按名称排序") }
+private enum class Sort(val label: String) { CUSTOM("自定义顺序"), NEWEST("最新添加"), OLDEST("最早添加"), NAME("按名称排序") }
 
 private data class HistoryRow(
     val key: String, val id: String, val name: String, val detail: String, val time: Long,
@@ -107,29 +112,33 @@ fun HistoryScreen(
     contentPadding: PaddingValues,
     initialTab: Int,
     onShowOnMap: (LatLon) -> Unit,
+    onEditRoute: (SavedRoute) -> Unit,
     onGoMock: () -> Unit,
     onExport: () -> Unit,
 ) {
     var tab by rememberSaveable(initialTab) { mutableIntStateOf(initialTab) }
     var query by rememberSaveable { mutableStateOf("") }
-    var sort by rememberSaveable { mutableStateOf(Sort.NEWEST) }
+    var sort by rememberSaveable { mutableStateOf(Sort.CUSTOM) }
     var sortMenu by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<HistoryRow?>(null) }
     var confirmDelete by remember { mutableStateOf<HistoryRow?>(null) }
     var rename by remember { mutableStateOf<HistoryRow?>(null) }
     var detail by remember { mutableStateOf<String?>(null) }
     var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var reorderMode by rememberSaveable { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmBatchDelete by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(tab) {
         selectionMode = false
+        reorderMode = false
         selectedIds = emptySet()
     }
 
-    BackHandler(enabled = selectionMode) {
+    BackHandler(enabled = selectionMode || reorderMode) {
         selectionMode = false
+        reorderMode = false
         selectedIds = emptySet()
     }
 
@@ -152,6 +161,7 @@ fun HistoryScreen(
     }.filter { query.isBlank() || it.name.contains(query, true) || it.detail.contains(query, true) }
         .let { list ->
             when (sort) {
+                Sort.CUSTOM -> list
                 Sort.NEWEST -> list.sortedByDescending { it.time }
                 Sort.OLDEST -> list.sortedBy { it.time }
                 Sort.NAME -> list.sortedBy { it.name }
@@ -180,8 +190,28 @@ fun HistoryScreen(
                     }
                 }
             }
+        } else if (reorderMode) {
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { reorderMode = false }) {
+                    Icon(Icons.Rounded.Close, "退出排序")
+                }
+                Text("调整顺序", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = { reorderMode = false }) { Text("完成") }
+            }
         } else {
             PageHeader("收藏") {
+                if (rows.size > 1) {
+                    IconButton(onClick = {
+                        query = ""
+                        sort = Sort.CUSTOM
+                        reorderMode = true
+                    }) {
+                        Icon(Icons.Rounded.SwapVert, "调整顺序")
+                    }
+                }
                 if (rows.isNotEmpty()) {
                     IconButton(onClick = { selectionMode = true }) {
                         Icon(Icons.Rounded.Checklist, "批量管理")
@@ -201,7 +231,7 @@ fun HistoryScreen(
         }
         val tabs = listOf("位置" to s.places.size, "路线" to s.routes.size, "环境" to s.environments.size)
         Segmented(tabs.map { (label, n) -> if (n > 0) "$label $n" else label }, tab, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { tab = it }
-        TextField(
+        if (!reorderMode) TextField(
             value = query, onValueChange = { query = it },
             placeholder = { Text(when (tab) { 1 -> "搜索路线"; 2 -> "搜索环境记录"; else -> "搜索位置" }) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
@@ -224,7 +254,7 @@ fun HistoryScreen(
             }
         } else {
             LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(rows, key = { it.key + it.id }) { row ->
+                itemsIndexed(rows, key = { _, it -> it.key + it.id }) { index, row ->
                     if (selectionMode) {
                         val isSelected = selectedIds.contains(row.id)
                         ListItem(
@@ -252,6 +282,50 @@ fun HistoryScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     selectedIds = if (isSelected) selectedIds - row.id else selectedIds + row.id
                                 },
+                        )
+                    } else if (reorderMode) {
+                        val kind = kindOf(row.key)
+                        ListItem(
+                            headlineContent = { Text(row.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium) },
+                            supportingContent = { Text(row.detail, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingContent = {
+                                Text(
+                                    "#${index + 1}",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                                    color = if (index == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            trailingContent = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            vm.run { moveRecordToTop(kind, row.id) }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(36.dp),
+                                    ) { Icon(Icons.Rounded.VerticalAlignTop, "置顶", modifier = Modifier.size(20.dp)) }
+                                    IconButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            vm.run { moveRecord(kind, row.id, -1) }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(36.dp),
+                                    ) { Icon(Icons.Rounded.KeyboardArrowUp, "上移", modifier = Modifier.size(22.dp)) }
+                                    IconButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            vm.run { moveRecord(kind, row.id, 1) }
+                                        },
+                                        enabled = index < rows.lastIndex,
+                                        modifier = Modifier.size(36.dp),
+                                    ) { Icon(Icons.Rounded.KeyboardArrowDown, "下移", modifier = Modifier.size(22.dp)) }
+                                }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                            modifier = Modifier.clip(MaterialTheme.shapes.large)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large),
                         )
                     } else {
                         SwipeRow(row, onClick = { sheet = row }, onDelete = { confirmDelete = row })
@@ -293,6 +367,10 @@ fun HistoryScreen(
                         SheetAction(Icons.Rounded.Map, "选择此路线并在地图查看") {
                             close(); vm.run("已选择路线") { selectRoute(row.id) }; row.position?.let(onShowOnMap)
                         }
+                        SheetAction(Icons.Rounded.Edit, "编辑路线（增删节点）") {
+                            close()
+                            s.routes.firstOrNull { it.id == row.id }?.let(onEditRoute)
+                        }
                     }
                     else -> {
                         SheetAction(Icons.Rounded.Upload, "载入此环境（坐标、基站、Wi-Fi）") {
@@ -302,6 +380,11 @@ fun HistoryScreen(
                             close(); detail = s.environments.firstOrNull { it.id == row.id }?.let { environmentText(it) }
                         }
                     }
+                }
+                SheetAction(Icons.Rounded.VerticalAlignTop, "置顶（排到第 1 位）") {
+                    close()
+                    sort = Sort.CUSTOM
+                    vm.run("已置顶") { moveRecordToTop(kindOf(row.key), row.id) }
                 }
                 SheetAction(Icons.Rounded.Delete, "删除", danger = true) { close(); confirmDelete = row }
             }

@@ -248,7 +248,7 @@ fun MockScreen(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("速度与传感器可能不一致", style = MaterialTheme.typography.titleSmall)
-                        Text("当前模拟约 ${"%.0f".format(s.runtime.speed * 3.6)} km/h。若手机此刻静止，运动 / 考勤类应用可能用加速度计或计步核对出与定位不符——本工具不伪造传感器。改用静止模拟或让手机实际移动可避免。",
+                        Text("当前模拟约 ${"%.0f".format(s.runtime.speed * 3.6)} km/h。若手机此刻静止，运动 / 考勤类应用可能用加速度计或计步核对出与定位不符——可按需安装配套模块 GeoshiftMotion 同步步频与步态，或改用静止模拟。",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }

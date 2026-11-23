@@ -55,4 +55,20 @@ class CadenceModelTest {
         assertTrue("vertical walk bounce should be non-trivial", kotlin.math.abs(walk[2]) > 0.5f)
         assertTrue("vertical walk bounce should stay realistic", kotlin.math.abs(walk[2]) < 6.0f)
     }
+
+    @Test
+    fun stepCounterTrackerAvoidsBaselineJump() {
+        // Case 1: Hardware arrives first -> preserves real boot count and adds synthetic steps.
+        val t1 = StepCounterTracker()
+        assertEquals(8500f, t1.onHardware(8500f, 0L), 1e-4f)
+        assertEquals(8510f, t1.onSynthetic(10L), 1e-4f)
+        assertEquals(8512f, t1.onHardware(8502f, 10L), 1e-4f)
+
+        // Case 2: Synthetic arrives before hardware -> later hardware baseline does not spike counter.
+        val t2 = StepCounterTracker()
+        assertEquals(10f, t2.onSynthetic(10L), 1e-4f)
+        assertEquals(10f, t2.onHardware(8500f, 10L), 1e-4f)
+        assertEquals(13f, t2.onHardware(8503f, 10L), 1e-4f)
+        assertEquals(18f, t2.onSynthetic(15L), 1e-4f)
+    }
 }

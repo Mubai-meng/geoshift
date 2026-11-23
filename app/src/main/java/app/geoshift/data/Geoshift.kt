@@ -141,10 +141,11 @@ class Geoshift private constructor(context: Context) {
     /** The simulation as a config, whichever backend plays it. */
     fun localConfig(s: Settings, r: Runtime): SimConfig {
         val route = r.anchor.takeIf { r.enabled && r.routeMode }
+        val footMotion = s.speed <= 5.5 && (s.customSpeed || s.speedMode == SpeedMode.WALK || s.speedMode == SpeedMode.RUN)
         return SimConfig(
             bootAt = bridge.bootAt(), active = r.enabled, paused = r.paused, position = r.position,
-            speed = if (route == null) r.speed else 0.0, bearing = r.bearing, route = route, noiseSeed = r.noiseSeed,
-            accuracy = s.accuracy, altitude = s.altitude, jitter = s.jitter, interval = s.interval,
+            speed = if (route == null) r.speed else 0.0, bearing = r.bearing, route = route, footMotion = footMotion,
+            noiseSeed = r.noiseSeed, accuracy = s.accuracy, altitude = s.altitude, jitter = s.jitter, interval = s.interval,
             hideEnvironment = s.hideEnvironment, gnss = s.gnss, satellites = s.satellites,
             wifi = r.wifi.takeIf { r.wifiEnabled }, cells = if (r.cellEnabled) r.cells else emptyList(),
             selectedOnly = s.onlySelected, packages = s.packages,
@@ -390,8 +391,6 @@ class Geoshift private constructor(context: Context) {
 
     fun joystick(enabled: Boolean) {
         if (enabled) {
-            val r = store.runtime.value
-            if (r.enabled && r.routeMode) fail("路线运行时请先停止路线，再使用摇杆。")
             ensureReady()
             if (!canDrawOverlays(app)) fail("请先在系统设置中允许显示悬浮窗。")
         }
@@ -401,7 +400,18 @@ class Geoshift private constructor(context: Context) {
     /** One joystick step: move [metres] towards [heading]. */
     fun joystickStep(metres: Double, heading: Double, speed: Double) {
         store.updateRuntime(persist = metres <= 0) { r ->
-            if (metres <= 0) r.copy(speed = 0.0) else r.copy(position = Geo.move(r.position, metres, heading), bearing = heading, speed = speed)
+            if (metres <= 0) r.copy(speed = 0.0)
+            else if (r.routeMode) r.copy(
+                position = Geo.move(r.position, metres, heading),
+                bearing = heading,
+                speed = speed,
+                mode = SimMode.POINT,
+                anchor = null,
+                paused = false,
+                progress = 0.0,
+                routeIndex = 0,
+            )
+            else r.copy(position = Geo.move(r.position, metres, heading), bearing = heading, speed = speed)
         }
         if (running) SimulationService.nudge()
     }
@@ -422,7 +432,7 @@ class Geoshift private constructor(context: Context) {
         return newId().also { store.places.put(SavedPlace(it, Validate.name(name), p, address)) }
     }
 
-    fun renamePlace(id: String, name: String) = store.places.put(store.places.find(id).copy(name = Validate.name(name)))
+    fun renamePlace(id: String, name: String) = store.places.replaceInPlace(store.places.find(id).copy(name = Validate.name(name)))
 
     fun saveRoute(name: String, points: List<LatLon>, waypoints: List<LatLon> = emptyList(), profile: RoadProfile = RoadProfile.STRAIGHT): String {
         // Long road routes can exceed the point limit; drop points that do not change the shape.
@@ -431,6 +441,25 @@ class Geoshift private constructor(context: Context) {
         Validate.route(kept)
         return newId().also { store.routes.put(SavedRoute(it, Validate.name(name), kept, if (profile.road) waypoints else emptyList(), profile)) }
     }
+
+    fun updateRoute(id: String, name: String, points: List<LatLon>, waypoints: List<LatLon> = emptyList(), profile: RoadProfile = RoadProfile.STRAIGHT) {
+        val existing = store.routes.find(id)
+        val validName = Validate.name(name)
+        val kept = simplifyRoute(points, Validate.MAX_ROUTE_POINTS)
+        if (kept.size < points.size) store.log("路线点较多，已精简为 ${kept.size} 个点")
+        Validate.route(kept)
+        store.routes.replaceInPlace(existing.copy(name = validName, points = kept, waypoints = if (profile.road) waypoints else emptyList(), profile = profile))
+        synchronized(plans) { plans.remove(id) }
+        val r = store.runtime.value
+        if (r.routeId == id) {
+            if (r.enabled && r.routeMode) stop()
+            store.updateRuntime { it.copy(routeName = validName, position = kept.first(), progress = 0.0, routeIndex = 0) }
+        }
+    }
+
+    fun moveRecordToTop(kind: RecordKind, id: String) = list(kind).moveToTop(id)
+
+    fun moveRecord(kind: RecordKind, id: String, delta: Int) = list(kind).moveBy(id, delta)
 
     fun delete(kind: RecordKind, ids: Set<String>) {
         if (kind == RecordKind.ROUTES) {

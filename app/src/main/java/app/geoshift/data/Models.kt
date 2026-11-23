@@ -24,7 +24,7 @@ enum class Backend(val label: String) {
 }
 
 enum class SpeedMode(val label: String, val metresPerSecond: Double) {
-    WALK("步行", 1.4), RUN("跑步", 3.0), BIKE("骑行", 6.0), DRIVE("驾驶", 13.9), FLY("飞行", 50.0)
+    WALK("步行", 1.4), RUN("跑步", 3.0), BIKE("骑行", 6.0), DRIVE("驾车", 13.9), FLY("飞行", 50.0)
 }
 
 /** How a route section between two tapped points is drawn. [road]: snapped to real roads. */

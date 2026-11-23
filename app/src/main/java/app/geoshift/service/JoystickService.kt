@@ -26,6 +26,12 @@ import android.view.WindowManager
 import app.geoshift.core.Geo
 import app.geoshift.data.Geoshift
 import app.geoshift.data.SpeedMode
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.min
@@ -35,10 +41,13 @@ import kotlin.math.min
  * - Hold & push the inner stick to move the simulated location continuously.
  * - Hold & drag the outer ring / top handle (or long-press the center knob still) to move the floating window.
  * - Tap top-left (−) to collapse into a compact draggable floating ball; tap the ball to expand.
+ * - Tap bottom-right (■) while simulating / running a route to stop simulation immediately.
+ * - Tap bottom-left (⏸/▶) while running a route to pause or resume route playback.
  * - Tap the bottom speed badge to cycle speed modes (步行 / 跑步 / 骑行 / 驾车 / 飞行) on the fly.
  */
 class JoystickService : Service() {
     private val handler = Handler(Looper.getMainLooper())
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var workerThread: HandlerThread
     private lateinit var worker: Handler
     private val move = Runnable { step() }
@@ -65,10 +74,17 @@ class JoystickService : Service() {
         startForeground(NOTIFICATION_ID, Notification.Builder(this, CHANNEL)
             .setSmallIcon(app.geoshift.R.drawable.ic_stat_geoshift)
             .setContentTitle("Geoshift 摇杆")
-            .setContentText("推内圈控制移动；按住外圈可拖动悬浮窗；点 − 最小化，点 × 关闭")
+            .setContentText("推内圈控制移动；模拟/路线中可点右下角停止或左下角暂停")
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "关闭", close).build())
             .build())
+        uiScope.launch {
+            combine(engine.store.runtime, engine.store.settings) { r, s ->
+                Triple(r.enabled, r.routeMode to r.paused, s.speedLabel)
+            }.collect {
+                stick?.invalidate()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, id: Int): Int {
@@ -216,6 +232,7 @@ class JoystickService : Service() {
     }
 
     override fun onDestroy() {
+        uiScope.cancel()
         handler.removeCallbacksAndMessages(null)
         worker.removeCallbacksAndMessages(null)
         workerThread.quitSafely()
@@ -235,6 +252,7 @@ class JoystickService : Service() {
             textAlign = Paint.Align.CENTER
         }
         private val pillRect = RectF()
+        private val playPath = android.graphics.Path()
         private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 
         private var mode = MODE_NONE
@@ -266,24 +284,32 @@ class JoystickService : Service() {
             val h = height.toFloat()
             val dragging = mode == MODE_DRAG_WINDOW
 
+            val r = engine.store.runtime.value
+
             if (collapsed) {
                 val cx = w * 0.5f
                 val cy = h * 0.5f
-                val r = w * 0.44f
+                val radius = w * 0.44f
+                val accentColor = when {
+                    dragging -> MINT
+                    r.enabled && r.paused -> WARNING_COLOR
+                    r.enabled -> MINT
+                    else -> ACCENT
+                }
                 paint.style = Paint.Style.FILL
                 paint.color = if (dragging) OUTER_FACE_DRAG else OUTER_FACE
-                c.drawCircle(cx, cy, r, paint)
+                c.drawCircle(cx, cy, radius, paint)
 
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = w * 0.04f
-                paint.color = if (dragging) MINT else ACCENT
-                c.drawCircle(cx, cy, r, paint)
+                paint.color = accentColor
+                c.drawCircle(cx, cy, radius, paint)
 
                 paint.style = Paint.Style.FILL
-                paint.color = if (dragging) MINT else ACCENT
-                c.drawCircle(cx, cy, r * 0.48f, paint)
+                paint.color = accentColor
+                c.drawCircle(cx, cy, radius * 0.48f, paint)
                 paint.color = 0xFFFFFFFF.toInt()
-                c.drawCircle(cx, cy, r * 0.18f, paint)
+                c.drawCircle(cx, cy, radius * 0.18f, paint)
                 return
             }
 
@@ -376,6 +402,47 @@ class JoystickService : Service() {
             c.drawLine(closeX - cd, closeY - cd, closeX + cd, closeY + cd, paint)
             c.drawLine(closeX + cd, closeY - cd, closeX - cd, closeY + cd, paint)
 
+            // 6b. Bottom-left route pause / resume button (shown while a route is running)
+            val routeRunning = r.enabled && r.routeMode
+            if (routeRunning) {
+                val pauseX = w * 0.17f
+                val pauseY = h * 0.84f
+                paint.style = Paint.Style.FILL
+                paint.color = if (r.paused) MINT_BG else WARNING_BG
+                c.drawCircle(pauseX, pauseY, btnR, paint)
+                paint.color = 0xFFFFFFFF.toInt()
+                if (r.paused) {
+                    val s = btnR * 0.42f
+                    playPath.reset()
+                    playPath.moveTo(pauseX - s * 0.55f, pauseY - s)
+                    playPath.lineTo(pauseX + s * 0.95f, pauseY)
+                    playPath.lineTo(pauseX - s * 0.55f, pauseY + s)
+                    playPath.close()
+                    c.drawPath(playPath, paint)
+                } else {
+                    val barW = btnR * 0.24f
+                    val barH = btnR * 0.78f
+                    val gap = btnR * 0.16f
+                    pillRect.set(pauseX - gap - barW, pauseY - barH / 2f, pauseX - gap, pauseY + barH / 2f)
+                    c.drawRoundRect(pillRect, barW / 2f, barW / 2f, paint)
+                    pillRect.set(pauseX + gap, pauseY - barH / 2f, pauseX + gap + barW, pauseY + barH / 2f)
+                    c.drawRoundRect(pillRect, barW / 2f, barW / 2f, paint)
+                }
+            }
+
+            // 6c. Bottom-right stop simulation button (shown whenever simulation / route is active)
+            if (r.enabled) {
+                val stopX = w * 0.83f
+                val stopY = h * 0.84f
+                paint.style = Paint.Style.FILL
+                paint.color = DANGER_BG
+                c.drawCircle(stopX, stopY, btnR, paint)
+                paint.color = 0xFFFFFFFF.toInt()
+                val sq = btnR * 0.38f
+                pillRect.set(stopX - sq, stopY - sq, stopX + sq, stopY + sq)
+                c.drawRoundRect(pillRect, sq * 0.3f, sq * 0.3f, paint)
+            }
+
             // 7. Bottom speed mode badge (tap to cycle speed mode on the fly)
             val speedLabel = engine.store.settings.value.speedLabel
             val badgeW = w * 0.34f
@@ -446,10 +513,15 @@ class JoystickService : Service() {
             val minY = h * 0.16f
             val closeX = w * 0.83f
             val closeY = h * 0.16f
+            val pauseX = w * 0.17f
+            val pauseY = h * 0.84f
+            val stopX = w * 0.83f
+            val stopY = h * 0.84f
             val hitR = w * 0.115f
             val speedY = h * 0.89f
             val speedHitW = w * 0.20f
             val speedHitH = h * 0.08f
+            val r = engine.store.runtime.value
 
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -464,12 +536,16 @@ class JoystickService : Service() {
 
                     val distClose = hypot(e.x - closeX, e.y - closeY)
                     val distMin = hypot(e.x - minX, e.y - minY)
+                    val distPause = hypot(e.x - pauseX, e.y - pauseY)
+                    val distStop = hypot(e.x - stopX, e.y - stopY)
                     val hitSpeed = kotlin.math.abs(e.x - cx) <= speedHitW && kotlin.math.abs(e.y - speedY) <= speedHitH
                     val distCenter = hypot(e.x - cx, e.y - cy)
 
                     when {
                         distClose <= hitR -> mode = MODE_CLOSE_CANDIDATE
                         distMin <= hitR -> mode = MODE_MINIMIZE_CANDIDATE
+                        r.enabled && distStop <= hitR -> mode = MODE_STOP_CANDIDATE
+                        r.enabled && r.routeMode && distPause <= hitR -> mode = MODE_PAUSE_CANDIDATE
                         hitSpeed -> mode = MODE_SPEED_CANDIDATE
                         // Outer ring or top handle bar: immediately drag the floating window
                         distCenter > innerR * 0.90f || e.y < cy - innerR * 0.75f -> {
@@ -494,7 +570,8 @@ class JoystickService : Service() {
                     val rawMoved = hypot(e.rawX - downRawX, e.rawY - downRawY)
                     if (rawMoved > maxMoveFromDown) maxMoveFromDown = rawMoved
                     when (mode) {
-                        MODE_CLOSE_CANDIDATE, MODE_MINIMIZE_CANDIDATE, MODE_SPEED_CANDIDATE -> {
+                        MODE_CLOSE_CANDIDATE, MODE_MINIMIZE_CANDIDATE, MODE_SPEED_CANDIDATE,
+                        MODE_STOP_CANDIDATE, MODE_PAUSE_CANDIDATE -> {
                             if (rawMoved > touchSlop) {
                                 mode = MODE_DRAG_WINDOW
                                 moveWindowTo(
@@ -541,6 +618,22 @@ class JoystickService : Service() {
                                 invalidate()
                                 return true
                             }
+                            MODE_STOP_CANDIDATE -> {
+                                vibrate(HapticFeedbackConstants.LONG_PRESS)
+                                mode = MODE_NONE
+                                stopStepping()
+                                worker.post { runCatching { engine.stop() } }
+                                invalidate()
+                                return true
+                            }
+                            MODE_PAUSE_CANDIDATE -> {
+                                vibrate(HapticFeedbackConstants.CLOCK_TICK)
+                                mode = MODE_NONE
+                                val pause = !engine.store.runtime.value.paused
+                                worker.post { runCatching { engine.pauseRoute(pause) } }
+                                invalidate()
+                                return true
+                            }
                         }
                     }
                     mode = MODE_NONE
@@ -578,6 +671,8 @@ class JoystickService : Service() {
         private const val MODE_MINIMIZE_CANDIDATE = 4
         private const val MODE_SPEED_CANDIDATE = 5
         private const val MODE_COLLAPSED_TAP = 6
+        private const val MODE_STOP_CANDIDATE = 7
+        private const val MODE_PAUSE_CANDIDATE = 8
 
         private const val OUTER_RING = 0.44f
         private const val INNER_RING = 0.29f
@@ -591,6 +686,10 @@ class JoystickService : Service() {
         private const val ACCENT_BORDER = 0x665B67EA.toInt()
         private const val ACCENT_GLOW = 0x805B67EA.toInt()
         private const val MINT = 0xFF00C897.toInt()
+        private const val MINT_BG = 0xE600C897.toInt()
+        private const val DANGER_BG = 0xE6FF5252.toInt()
+        private const val WARNING_COLOR = 0xFFFF9F43.toInt()
+        private const val WARNING_BG = 0xE6FF9F43.toInt()
         private const val TICK_COLOR = 0x55787A91.toInt()
         private const val CLOSE_BG = 0xE6353150.toInt()
         private const val CLOSE_FG = 0xFFEDEDF5.toInt()

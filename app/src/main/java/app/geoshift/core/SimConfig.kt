@@ -26,6 +26,8 @@ data class SimConfig(
     val bearing: Double = 0.0,
     /** Set while a route plays; the hooks play it themselves from this anchor. */
     val route: RouteAnchor? = null,
+    /** Whether the current movement mode is on foot (walk/run) so GeoshiftMotion synthesizes steps. */
+    val footMotion: Boolean = true,
     val noiseSeed: Long = 0,
     val accuracy: Double = 5.0,
     val altitude: Double = 0.0,

@@ -80,6 +80,7 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
                     if (!c.active || !AppScope.covers(c, uid)) return@before
                     val fix = runCatching { Fakes.fix(c, "gps") }.getOrNull() ?: return@before
                     extras.putBoolean("active", true)
+                    extras.putBoolean("foot", c.footMotion)
                     extras.putDouble("speed", (fix.speed ?: 0f).toDouble())
                     extras.putLong("seed", c.noiseSeed)
                     call.result = if (call.returnType == java.lang.Boolean.TYPE) true else null

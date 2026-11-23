@@ -108,6 +108,7 @@ import app.geoshift.ui.settings.SettingsScreen
 import app.geoshift.ui.setup.SetupScreen
 import app.geoshift.ui.setup.SystemTarget
 import app.geoshift.ui.theme.GeoshiftTheme
+import app.geoshift.data.SavedRoute
 import app.geoshift.data.ThemeMode
 import app.geoshift.ui.theme.isDark
 
@@ -182,6 +183,7 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
     var tab by rememberSaveable { mutableStateOf(Tab.MAP) }
     var historyTab by rememberSaveable { mutableIntStateOf(0) }
     var center by remember { mutableStateOf<CenterRequest?>(null) }
+    var editRouteRequest by remember { mutableStateOf<SavedRoute?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
@@ -238,6 +240,8 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
                             onOpenSetup = openSetup,
                             onOpenAmapKey = openAmapKey,
                             visible = tab == Tab.MAP,
+                            editRouteRequest = editRouteRequest,
+                            onEditRouteConsumed = { editRouteRequest = null },
                         )
                         AnimatedContent(
                             targetState = tab,
@@ -252,6 +256,7 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
                                     Tab.HISTORY -> HistoryScreen(
                                         s, vm, padding, historyTab,
                                         onShowOnMap = { p -> center = CenterRequest(p, 16.0); tab = Tab.MAP },
+                                        onEditRoute = { route -> editRouteRequest = route; tab = Tab.MAP },
                                         onGoMock = { tab = Tab.MOCK }, onExport = onExport,
                                     )
                                     Tab.MOCK -> MockScreen(

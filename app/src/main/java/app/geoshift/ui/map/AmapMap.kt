@@ -82,6 +82,10 @@ fun AmapMap(
                 map.setOnMapClickListener { tap.value(it.stored()) }
                 map.setOnMapLongClickListener { longPress.value(it.stored()) }
                 map.setOnPOIClickListener { tap.value(it.coordinate.stored()) }
+                map.setOnMarkerClickListener { marker ->
+                    if (isRouteEditing) tap.value(marker.position.stored())
+                    true
+                }
                 map.setOnMapLoadedListener { onMapReady(); markLoaded() }
             }
         }.onFailure { runCatching { created?.onDestroy() } }
@@ -168,6 +172,7 @@ private class NativeLayers(
     fun markLoaded() { dataLoaded = true }
     private var lastRoute: List<LatLon> = emptyList()
     private var lastEditing = false
+    val isRouteEditing get() = lastEditing
     private var lastAnchors: List<LatLon> = emptyList()
     private var lastVirtual: LatLon? = null
     private var lastSimulating: Boolean? = null

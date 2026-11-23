@@ -61,6 +61,42 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
         save(next)
     }
 
+    /** Replaces an existing record in place so custom ordering is preserved; prepends if absent. */
+    @Synchronized fun replaceInPlace(item: T) {
+        val current = flow.value
+        val index = current.indexOfFirst { it.id == item.id }
+        val next = if (index >= 0) current.toMutableList().apply { set(index, item) }
+        else {
+            if (current.size + 1 > Validate.MAX_RECORDS) fail("记录已达 ${Validate.MAX_RECORDS} 条，请先导出并清理。")
+            listOf(item) + current
+        }
+        save(next)
+    }
+
+    /** Moves the record with [id] to the top (index 0). */
+    @Synchronized fun moveToTop(id: String) {
+        val current = flow.value
+        val index = current.indexOfFirst { it.id == id }
+        if (index <= 0) return
+        val next = current.toMutableList()
+        val item = next.removeAt(index)
+        next.add(0, item)
+        save(next)
+    }
+
+    /** Moves the record with [id] by [delta] positions (-1 up, +1 down). */
+    @Synchronized fun moveBy(id: String, delta: Int) {
+        val current = flow.value
+        val index = current.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val target = (index + delta).coerceIn(0, current.lastIndex)
+        if (target == index) return
+        val next = current.toMutableList()
+        val item = next.removeAt(index)
+        next.add(target, item)
+        save(next)
+    }
+
     /** Room left before [Validate.MAX_RECORDS] once [items] replace the records sharing their ids. */
     fun fits(items: List<T>): Boolean {
         val ids = items.mapTo(HashSet()) { it.id }

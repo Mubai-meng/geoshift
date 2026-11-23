@@ -9,6 +9,7 @@
 
 ## 当前记录
 
+- [2026-11-23：收藏排序、摇杆停路线、路线重编辑与运动方式修复](reviews/2026-11-23-favorites-sort-joystick-stop-route-edit-motion-fixes.md)
 - [2026-11-12：NR 基站模拟与预设保存](reviews/2026-11-12-nr-cell-simulation.md)
 
 - [2026-11-11：传感器交叉校验——已知局限 + 速度提醒（不伪造）](reviews/2026-11-11-sensor-consistency.md)
