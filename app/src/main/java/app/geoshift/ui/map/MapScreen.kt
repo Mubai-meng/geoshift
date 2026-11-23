@@ -343,10 +343,12 @@ fun MapScreen(
         draft.add(p)
     }
 
+    val shownVirtual = if (r.enabled || r.positionSet) r.position else null
+
     Box(Modifier.fillMaxSize()) {
         if (officialAmap) AmapMap(
             modifier = Modifier.fillMaxSize(), sdk = sdk, keyRevision = sdkKey,
-            virtual = r.position, simulating = r.enabled, real = realPosition,
+            virtual = shownVirtual, simulating = r.enabled, real = realPosition,
             selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
             dark = isDark(s.settings.theme), styleId = sdkStyleId, camera = camera, center = centerRequest,
@@ -357,7 +359,7 @@ fun MapScreen(
             onFailure = { message -> sdkFailed = true; vm.toast("$message，已改用高德瓦片地图") },
             onSlow = { vm.toast("高德官方地图加载较慢，请检查网络；仍是空白可在图层菜单换个图层，或到「设置 → 高德 Key」点「验证 Key」") },
         ) else VectorMap(
-            modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled, real = realPosition,
+            modifier = Modifier.fillMaxSize(), virtual = shownVirtual, simulating = r.enabled, real = realPosition,
             selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
             online = s.settings.privacyAccepted, dark = isDark(s.settings.theme), source = s.settings.mapSource,
@@ -541,7 +543,10 @@ fun MapScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 ToolGroup {
-                    MapTool(Icons.Rounded.PinDrop, "回到模拟位置") { onCenter(CenterRequest(r.position)) }
+                    MapTool(Icons.Rounded.PinDrop, "回到模拟位置") {
+                        if (shownVirtual != null) onCenter(CenterRequest(shownVirtual))
+                        else vm.toast("当前未设置模拟点")
+                    }
                     ToolDivider()
                     MapTool(Icons.Rounded.MyLocation, "真实位置") {
                         val cached = realPosition
@@ -655,6 +660,8 @@ fun MapScreen(
                     onPause = {
                         vm.run(if (r.routeFinished) "路线重新开始" else if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) }
                     },
+                    onClearRoute = { vm.run("已清除地图路线") { clearRoute() } },
+                    onClearPoint = { vm.run("已清除模拟点") { clearPoint() } },
                     onOpenSetup = onOpenSetup,
                     onCopyCoord = { vm.toast("虚拟坐标已复制到剪贴板") },
                 )

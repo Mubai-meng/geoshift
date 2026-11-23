@@ -82,6 +82,8 @@ internal fun StatusCard(
     address: String,
     onToggle: () -> Unit,
     onPause: () -> Unit,
+    onClearRoute: () -> Unit,
+    onClearPoint: () -> Unit,
     onOpenSetup: () -> Unit,
     onCopyCoord: () -> Unit,
 ) {
@@ -107,6 +109,7 @@ internal fun StatusCard(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         when {
+                            r.enabled && r.routeFinished -> "路线已走完"
                             r.enabled && r.paused -> "路线已暂停"
                             r.enabled && r.routeMode -> "路线模拟中"
                             r.enabled -> "正在模拟"
@@ -116,9 +119,43 @@ internal fun StatusCard(
                         style = MaterialTheme.typography.labelLarge,
                         color = if (r.enabled) live else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (s.currentRoute.size >= 2) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            onClick = onClearRoute,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Rounded.Close, "清除路线", Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(2.dp))
+                                Text("清除路线", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    } else if (!r.enabled && r.positionSet) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            onClick = onClearPoint,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Rounded.Close, "清除模拟点", Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(2.dp))
+                                Text("清除模拟点", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
                 Spacer(Modifier.size(4.dp))
-                val name = s.positionName
+                val hasPin = r.enabled || r.positionSet
+                val name = if (hasPin) s.positionName else ""
                 if (name.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Bookmark, null, Modifier.size(18.dp), tint = if (r.enabled) live else MaterialTheme.colorScheme.primary)
@@ -129,17 +166,22 @@ internal fun StatusCard(
                         )
                     }
                 }
-                CoordinateRow(
-                    r.position.lat, r.position.lon,
-                    style = if (name.isNotEmpty()) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
-                    onCopied = onCopyCoord,
-                )
-                if (name.isEmpty() || r.routeMode || (address.isNotEmpty() && address != name)) Text(
+                if (hasPin) {
+                    CoordinateRow(
+                        r.position.lat, r.position.lon,
+                        style = if (name.isNotEmpty()) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
+                        onCopied = onCopyCoord,
+                    )
+                } else {
+                    Text("未设置模拟点", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (name.isEmpty() || r.routeMode || (hasPin && address.isNotEmpty() && address != name)) Text(
                     when {
                         r.enabled && r.routeMode -> String.format(
                             java.util.Locale.ROOT, "%s · %.0f km/h · %d%%",
                             r.routeName.ifEmpty { "未命名路线" }, r.speed * 3.6, (r.progress * 100).toInt(),
                         )
+                        !hasPin -> "点地图选点，或从收藏中选择位置 / 路线"
                         address.isNotEmpty() -> address
                         r.enabled -> "所有定位来源都在这个点"
                         else -> "点地图选点，或直接在此处开始"

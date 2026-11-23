@@ -96,6 +96,8 @@ data class Runtime(
     val paused: Boolean = false,
     val mode: SimMode = SimMode.POINT,
     val position: LatLon = LatLon(39.9042, 116.4074),
+    /** Whether a virtual point is currently pinned on the map (false after clearing the simulated point). */
+    val positionSet: Boolean = true,
     val bearing: Double = 0.0,
     val speed: Double = 0.0,
     val routeId: String = "",

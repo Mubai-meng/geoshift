@@ -48,7 +48,7 @@ fun AmapMap(
     modifier: Modifier,
     sdk: AmapSdk,
     keyRevision: Any,
-    virtual: LatLon,
+    virtual: LatLon?,
     simulating: Boolean,
     real: LatLon?,
     selected: LatLon?,
@@ -175,6 +175,7 @@ private class NativeLayers(
     val isRouteEditing get() = lastEditing
     private var lastAnchors: List<LatLon> = emptyList()
     private var lastVirtual: LatLon? = null
+    private var virtualInitialized = false
     private var lastSimulating: Boolean? = null
     private var lastSelected: LatLon? = null
     private var lastReal: LatLon? = null
@@ -244,22 +245,28 @@ private class NativeLayers(
         map.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 500L, null)
     }
 
-    fun markers(virtual: LatLon, simulating: Boolean, real: LatLon?, selected: LatLon?) {
+    fun markers(virtual: LatLon?, simulating: Boolean, real: LatLon?, selected: LatLon?) {
         if (real != lastReal) {
             this.real.isVisible = real != null
             real?.let { this.real.position = it.amap() }
             lastReal = real
         }
-        if (virtual != lastVirtual) {
+        if (!virtualInitialized || virtual != lastVirtual) {
             val from = lastVirtual
-            // While simulating, glide the marker between consecutive fixes instead of teleporting;
-            // a large jump (a manual move, a joystick snap) is applied at once.
-            if (simulating && from != null &&
-                AMapUtils.calculateLineDistance(from.amap(), virtual.amap()) in 0.2f..300f) {
-                animateVirtual(from, virtual)
+            virtualInitialized = true
+            this.virtual.isVisible = virtual != null
+            if (virtual != null) {
+                // While simulating, glide the marker between consecutive fixes instead of teleporting;
+                // a large jump (a manual move, a joystick snap) is applied at once.
+                if (simulating && from != null &&
+                    AMapUtils.calculateLineDistance(from.amap(), virtual.amap()) in 0.2f..300f) {
+                    animateVirtual(from, virtual)
+                } else {
+                    virtualAnimator?.cancel()
+                    this.virtual.position = virtual.amap()
+                }
             } else {
                 virtualAnimator?.cancel()
-                this.virtual.position = virtual.amap()
             }
             lastVirtual = virtual
         }

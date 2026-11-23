@@ -426,6 +426,9 @@ private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
                 Text(if (hasRoute) "${s.currentRoute.size} 个点 · ${formatDistance(s.currentRouteLength)}" else "在收藏中选择，或在地图上绘制",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (hasRoute) {
+                TextButton(onClick = { vm.run("已清除当前路线") { clearRoute() } }) { Text("清除") }
+            }
             TextButton(onClick = onPickRoute) { Text(if (hasRoute) "更换" else "选择") }
         }
         Spacer(Modifier.size(12.dp))

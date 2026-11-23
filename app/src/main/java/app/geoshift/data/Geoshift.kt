@@ -263,16 +263,21 @@ class Geoshift private constructor(context: Context) {
         // Choosing a point means point simulation from here: a selected route would otherwise start
         // (and a playing one would pull the position back) the next time the simulation runs.
         store.updateRuntime {
-            if (it.routeMode) it.copy(position = p, error = "", mode = SimMode.POINT, anchor = null, paused = false, speed = 0.0, progress = 0.0, routeIndex = 0)
-            else it.copy(position = p, error = "")
+            if (it.routeMode) it.copy(position = p, positionSet = true, error = "", mode = SimMode.POINT, anchor = null, paused = false, speed = 0.0, progress = 0.0, routeIndex = 0)
+            else it.copy(position = p, positionSet = true, error = "")
         }
         if (running) SimulationService.nudge()
     }
 
     fun startPoint(p: LatLon? = null) {
-        p?.let(::setLocation)
+        if (p != null) {
+            setLocation(p)
+        } else if (!store.runtime.value.positionSet) {
+            val real = _realPosition.value ?: fail("请先在地图上点选一个位置。")
+            setLocation(real)
+        }
         ensureReady()
-        store.updateRuntime { it.copy(mode = SimMode.POINT) }
+        store.updateRuntime { it.copy(mode = SimMode.POINT, positionSet = true) }
         start()
     }
 
@@ -280,7 +285,7 @@ class Geoshift private constructor(context: Context) {
         if (running) fail("请先停止当前模拟，再切换路线。")
         val route = store.routes.find(id)
         Validate.route(route.points)
-        store.updateRuntime { it.copy(mode = SimMode.ROUTE, routeId = id, routeName = route.name, position = route.points.first(), progress = 0.0, routeIndex = 0) }
+        store.updateRuntime { it.copy(mode = SimMode.ROUTE, routeId = id, routeName = route.name, position = route.points.first(), positionSet = true, progress = 0.0, routeIndex = 0) }
         // A route drawn for driving plays at driving speed, and so on (unless the user set a speed).
         route.profile.speed?.takeUnless { store.settings.value.customSpeed }?.let { speed ->
             if (store.settings.value.speedMode != speed) {
@@ -309,7 +314,7 @@ class Geoshift private constructor(context: Context) {
         store.updateRuntime { r ->
             val anchor = if (r.routeMode) RouteAnchor(r.routeId, 0.0, now, s.speed, r.repeat, trafficSeed(s)) else null
             val first = if (r.routeMode) plan(r.routeId)?.points?.firstOrNull() ?: r.position else r.position
-            r.copy(enabled = true, paused = false, error = "", anchor = anchor, position = first, progress = 0.0,
+            r.copy(enabled = true, paused = false, error = "", anchor = anchor, position = first, positionSet = true, progress = 0.0,
                 routeIndex = 0, noiseSeed = SecureRandom().nextLong())
         }
         SimulationService.start(app)
@@ -416,10 +421,35 @@ class Geoshift private constructor(context: Context) {
         if (running) SimulationService.nudge()
     }
 
+    fun clearRoute() {
+        val r = store.runtime.value
+        if (r.enabled && r.routeMode) stop()
+        store.updateRuntime { it.copy(mode = SimMode.POINT, routeId = "", routeName = "", anchor = null, paused = false, progress = 0.0, routeIndex = 0) }
+    }
+
+    fun clearPoint() {
+        if (running) stop()
+        val fallback = _realPosition.value
+        store.updateRuntime {
+            it.copy(
+                mode = SimMode.POINT, routeId = "", routeName = "", anchor = null, paused = false,
+                position = fallback ?: it.position, positionSet = false,
+                progress = 0.0, routeIndex = 0, speed = 0.0,
+            )
+        }
+    }
+
     fun clearSimulation() {
         stop()
         JoystickService.command(app, false)
-        store.updateRuntime { it.copy(wifiEnabled = false, cellEnabled = false, speed = 0.0) }
+        val fallback = _realPosition.value
+        store.updateRuntime {
+            it.copy(
+                mode = SimMode.POINT, routeId = "", routeName = "", progress = 0.0, routeIndex = 0,
+                position = fallback ?: it.position, positionSet = false,
+                wifiEnabled = false, cellEnabled = false, speed = 0.0,
+            )
+        }
         store.updateSettings { it.copy(gnss = false) }
     }
 
@@ -572,7 +602,7 @@ class Geoshift private constructor(context: Context) {
         val cells = e.cells.mapNotNull { it.toSpec() }.take(Validate.MAX_CELLS)
         val wifi = e.wifi.firstOrNull { runCatching { Validate.wifi(it.ssid, it.bssid) }.isSuccess }
         store.updateRuntime {
-            it.copy(position = e.position, mode = SimMode.POINT, cells = cells, cellEnabled = cells.isNotEmpty(), cellPresetId = "",
+            it.copy(position = e.position, positionSet = true, mode = SimMode.POINT, cells = cells, cellEnabled = cells.isNotEmpty(), cellPresetId = "",
                 wifi = wifi?.let { w -> WifiSpec(w.ssid, w.bssid.lowercase(Locale.ROOT), w.rssi, w.frequency) }, wifiEnabled = wifi != null,
                 wifiPresetId = "", environmentName = e.name)
         }

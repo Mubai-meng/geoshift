@@ -1,6 +1,6 @@
 # 2026-11-23：收藏排序、摇杆停路线、路线重编辑与运动方式修复
 
-- **版本**：Geoshift `3.5.9` → `3.5.10`（versionCode `80`） + GeoshiftMotion `1.0.1` → `1.0.2`（versionCode `3`）
+- **版本**：Geoshift `3.5.9` → `3.5.11`（versionCode `81`） + GeoshiftMotion `1.0.1` → `1.0.2`（versionCode `3`）
 - **基线提交**：`0f19381`（`v3.5.8` 后）
 - **范围**：`:app`（存储、引擎、摇杆服务、收藏页、地图路线编辑、系统侧 `MOTION` 通道）与 `:motion`（步频模型、步数追踪器、传感器事件分发）
 
@@ -62,6 +62,10 @@
 - **提前累计步数**：在 `onPackageReady` 即启动轻量 `1.5s` 轮询，保证在目标 App 未提前注册传感器或查询步数前，跑路线期间产生的步数也能实时累计，打开微信运动即可看到。
 - **LSPosed / Vector 诊断日志**：记录模块加载进程、命中传感器类型、小米步数库查询叠加数及 `MOTION` 状态切换，便于真机排查。
 
+### 7. `3.5.11` 地图路线与模拟点一键清除
+- **一键清除路线**：`Geoshift.clearRoute()` 清空当前选中的路线轨迹（不删除收藏记录），地图底卡（`StatusCard`）与控制台路线卡均提供「清除路线 / 清除」入口。
+- **一键清除模拟点**：`Runtime` 新增 `positionSet: Boolean = true`，`Geoshift.clearPoint()` 与 `clearSimulation()` 支持清除/隐藏地图上残留的模拟点标记（`AmapMap` 与 `VectorMap` 同步改为接收 `virtual: LatLon?`）。
+
 ---
 
 ## 二、验证快照
@@ -69,7 +73,7 @@
 - **JVM 单元测试**：`:app:testDebugUnitTest`（34 项，0 失败）+ `:motion:testDebugUnitTest`（5 项，含新增 `stepCounterTrackerAvoidsBaselineJump`，0 失败）。
 - **静态检查**：`:motion:lintRelease` 0 错误；`:app:lintRelease` 新增代码 0 错误 0 警告（仅有既有 `Fakes.kt` 的 4 条 `NewApi` 报错）。
 - **发布构建**：`./build-release.sh` 与 `./build-motion.sh` 签名构建并通过 `apksigner verify`：
-  - `../releases/Geoshift-3.5.10.apk`（28.8 MB，SHA-256：`492fb5a227118b7dadb21db93a3e1a482841445c7eb264b8176f843e2fad0063`）
+  - `../releases/Geoshift-3.5.11.apk`（28.8 MB，SHA-256：`4558e6540a7a0356052b3faf7a02968a8e9a6aa8ceb8e01ebb53bf2f016a2e96`）
   - `../releases/GeoshiftMotion-1.0.2.apk`（37 KB，SHA-256：`fcda7ca749d7f2178092b67a9a7ff4de16b987f956c5282ac1b8eb2c3fcf5ba9`）
 - **真机/模拟器待验项**：
   - `GeoshiftMotion` 的 `BaseEventQueue` 构造函数 Hook 在不同 Android 版本/厂商 ROM 上是否总能捕获到 `Looper`（捕获不到时已兜底 `Looper.getMainLooper()`）。

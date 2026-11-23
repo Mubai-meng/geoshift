@@ -83,7 +83,7 @@ private fun fromVectorZoom(zoom: Double) = zoom + 1
 @Composable
 fun VectorMap(
     modifier: Modifier,
-    virtual: LatLon,
+    virtual: LatLon?,
     simulating: Boolean,
     real: LatLon?,
     selected: LatLon?,
@@ -190,7 +190,7 @@ private class VectorLayers(
     private fun LatLng.stored(): LatLon = source.toWgs(LatLon(latitude, longitude))
 
     // Latest data, re-applied whenever a style finishes loading.
-    private var virtual: LatLon = camera.target
+    private var virtual: LatLon? = camera.target
     private var simulating = false
     private var real: LatLon? = null
     private var selected: LatLon? = null
@@ -266,7 +266,7 @@ private class VectorLayers(
         pushRoute()
     }
 
-    fun markers(virtual: LatLon, simulating: Boolean, real: LatLon?, selected: LatLon?) {
+    fun markers(virtual: LatLon?, simulating: Boolean, real: LatLon?, selected: LatLon?) {
         if (virtual == this.virtual && simulating == this.simulating && real == this.real && selected == this.selected && style != null) return
         this.virtual = virtual
         this.simulating = simulating
@@ -338,7 +338,7 @@ private class VectorLayers(
 
     private fun pushMarkers() {
         val s = style ?: return
-        source(SRC_VIRTUAL)?.setGeoJson(Feature.fromGeometry(virtual.point()))
+        source(SRC_VIRTUAL)?.setGeoJson(FeatureCollection.fromFeatures(listOfNotNull(virtual?.let { Feature.fromGeometry(it.point()) })))
         s.getLayerAs<SymbolLayer>("gs-virtual")?.setProperties(PropertyFactory.iconImage(if (simulating) IMG_ACTIVE else IMG_IDLE))
         source(SRC_SELECTED)?.setGeoJson(FeatureCollection.fromFeatures(listOfNotNull(selected?.let { Feature.fromGeometry(it.point()) })))
         source(SRC_REAL)?.setGeoJson(FeatureCollection.fromFeatures(listOfNotNull(real?.let { Feature.fromGeometry(it.point()) })))
