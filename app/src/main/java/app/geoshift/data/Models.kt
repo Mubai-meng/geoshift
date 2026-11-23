@@ -32,6 +32,7 @@ enum class RoadProfile(val label: String, val road: Boolean, val osrm: String) {
     /** Pure hand-picked path: the tapped points joined by straight lines, no road service. */
     STRAIGHT("手选", false, ""),
     FOOT("步行", true, "foot"),
+    RUN("跑步", true, "foot"),
     BIKE("骑行", true, "bike"),
     CAR("驾车", true, "car"),
     /** Straight lines between the tapped points, played at flying speed. */
@@ -39,7 +40,7 @@ enum class RoadProfile(val label: String, val road: Boolean, val osrm: String) {
 
     /** Playback speed that suits a route drawn this way. */
     val speed: SpeedMode? get() = when (this) {
-        FOOT -> SpeedMode.WALK; BIKE -> SpeedMode.BIKE; CAR -> SpeedMode.DRIVE; FLY -> SpeedMode.FLY; STRAIGHT -> null
+        FOOT -> SpeedMode.WALK; RUN -> SpeedMode.RUN; BIKE -> SpeedMode.BIKE; CAR -> SpeedMode.DRIVE; FLY -> SpeedMode.FLY; STRAIGHT -> null
     }
 }
 

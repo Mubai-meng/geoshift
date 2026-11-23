@@ -1,6 +1,6 @@
 # 2026-11-23：收藏排序、摇杆停路线、路线重编辑与运动方式修复
 
-- **版本**：Geoshift `3.5.9`（versionCode `79`） + GeoshiftMotion `1.0.1`（versionCode `2`）
+- **版本**：Geoshift `3.5.9` → `3.5.10`（versionCode `80`） + GeoshiftMotion `1.0.1`（versionCode `2`）
 - **基线提交**：`0f19381`（`v3.5.8` 后）
 - **范围**：`:app`（存储、引擎、摇杆服务、收藏页、地图路线编辑、系统侧 `MOTION` 通道）与 `:motion`（步频模型、步数追踪器、传感器事件分发）
 
@@ -52,6 +52,11 @@
   - `motion/src/main/java/app/geoshift/motion/MotionModule.kt`：消费 `foot` 字段；Hook `BaseEventQueue` 构造函数记录各队列 `Looper` 并用对应 `Handler.post` 分发，分发前二次校验句柄仍活跃；接入 `StepCounterTracker`。
   - `app/src/main/java/app/geoshift/data/Models.kt` & `MockScreen.kt`：统一为「驾车」，更新诊断说明提及 `GeoshiftMotion`。
 
+### 5. `3.5.10` 补充优化
+- **路线规划新增「跑步」出行方式**：`Models.kt` 新增 `RoadProfile.RUN("跑步", true, "foot")`，与控制台 `SpeedMode` 一一对应；`Net.kt` 道路缓存键改按 `profile.osrm` 索引，步行/跑步切换复用缓存。
+- **悬浮窗常驻一键启动 / 停止**：`JoystickService.kt` 右下角按钮改为常驻，未模拟时显示绿色 `▶`（按当前路线/单点模式直接启动），模拟中显示红色 `■`（停止）。
+- **官网镜像清理**：实测移除返回 HTML 错误页的 `gh-proxy.net`，保留 `ghfast.top`、`gh-proxy.org`、`ghfile.geekertao.top`。
+
 ---
 
 ## 二、验证快照
@@ -59,7 +64,7 @@
 - **JVM 单元测试**：`:app:testDebugUnitTest`（34 项，0 失败）+ `:motion:testDebugUnitTest`（5 项，含新增 `stepCounterTrackerAvoidsBaselineJump`，0 失败）。
 - **静态检查**：`:motion:lintRelease` 0 错误；`:app:lintRelease` 新增代码 0 错误 0 警告（仅有既有 `Fakes.kt` 的 4 条 `NewApi` 报错）。
 - **发布构建**：`./build-release.sh` 与 `./build-motion.sh` 签名构建并通过 `apksigner verify`：
-  - `../releases/Geoshift-3.5.9.apk`（28.8 MB，SHA-256：`ace21575f96dd880a7eea2113dc58fef4b62de337ac728c1780c9753f4383716`）
+  - `../releases/Geoshift-3.5.10.apk`（28.8 MB，SHA-256：`492fb5a227118b7dadb21db93a3e1a482841445c7eb264b8176f843e2fad0063`）
   - `../releases/GeoshiftMotion-1.0.1.apk`（33 KB，SHA-256：`2371bd3fd83e2474349c40b889a17d8002132390eacca547fea97194ca262385`）
 - **真机/模拟器待验项**：
   - `GeoshiftMotion` 的 `BaseEventQueue` 构造函数 Hook 在不同 Android 版本/厂商 ROM 上是否总能捕获到 `Looper`（捕获不到时已兜底 `Looper.getMainLooper()`）。

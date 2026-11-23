@@ -74,7 +74,7 @@ class JoystickService : Service() {
         startForeground(NOTIFICATION_ID, Notification.Builder(this, CHANNEL)
             .setSmallIcon(app.geoshift.R.drawable.ic_stat_geoshift)
             .setContentTitle("Geoshift 摇杆")
-            .setContentText("推内圈控制移动；模拟/路线中可点右下角停止或左下角暂停")
+            .setContentText("推内圈控制移动；右下角可启停模拟，路线中左下角可暂停/继续")
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "关闭", close).build())
             .build())
@@ -430,17 +430,27 @@ class JoystickService : Service() {
                 }
             }
 
-            // 6c. Bottom-right stop simulation button (shown whenever simulation / route is active)
-            if (r.enabled) {
-                val stopX = w * 0.83f
-                val stopY = h * 0.84f
+            // 6c. Bottom-right start / stop simulation button (always available: green ▶ to start, red ■ to stop)
+            run {
+                val toggleX = w * 0.83f
+                val toggleY = h * 0.84f
                 paint.style = Paint.Style.FILL
-                paint.color = DANGER_BG
-                c.drawCircle(stopX, stopY, btnR, paint)
+                paint.color = if (r.enabled) DANGER_BG else MINT_BG
+                c.drawCircle(toggleX, toggleY, btnR, paint)
                 paint.color = 0xFFFFFFFF.toInt()
-                val sq = btnR * 0.38f
-                pillRect.set(stopX - sq, stopY - sq, stopX + sq, stopY + sq)
-                c.drawRoundRect(pillRect, sq * 0.3f, sq * 0.3f, paint)
+                if (r.enabled) {
+                    val sq = btnR * 0.38f
+                    pillRect.set(toggleX - sq, toggleY - sq, toggleX + sq, toggleY + sq)
+                    c.drawRoundRect(pillRect, sq * 0.3f, sq * 0.3f, paint)
+                } else {
+                    val s = btnR * 0.42f
+                    playPath.reset()
+                    playPath.moveTo(toggleX - s * 0.55f, toggleY - s)
+                    playPath.lineTo(toggleX + s * 0.95f, toggleY)
+                    playPath.lineTo(toggleX - s * 0.55f, toggleY + s)
+                    playPath.close()
+                    c.drawPath(playPath, paint)
+                }
             }
 
             // 7. Bottom speed mode badge (tap to cycle speed mode on the fly)
@@ -544,7 +554,7 @@ class JoystickService : Service() {
                     when {
                         distClose <= hitR -> mode = MODE_CLOSE_CANDIDATE
                         distMin <= hitR -> mode = MODE_MINIMIZE_CANDIDATE
-                        r.enabled && distStop <= hitR -> mode = MODE_STOP_CANDIDATE
+                        distStop <= hitR -> mode = MODE_STOP_CANDIDATE
                         r.enabled && r.routeMode && distPause <= hitR -> mode = MODE_PAUSE_CANDIDATE
                         hitSpeed -> mode = MODE_SPEED_CANDIDATE
                         // Outer ring or top handle bar: immediately drag the floating window
@@ -621,8 +631,21 @@ class JoystickService : Service() {
                             MODE_STOP_CANDIDATE -> {
                                 vibrate(HapticFeedbackConstants.LONG_PRESS)
                                 mode = MODE_NONE
-                                stopStepping()
-                                worker.post { runCatching { engine.stop() } }
+                                if (engine.store.runtime.value.enabled) {
+                                    stopStepping()
+                                    worker.post { runCatching { engine.stop() } }
+                                } else {
+                                    worker.post {
+                                        try {
+                                            val cur = engine.store.runtime.value
+                                            if (cur.routeMode && engine.plan(cur.routeId) != null) engine.startRoute()
+                                            else engine.startPoint()
+                                        } catch (ex: Exception) {
+                                            engine.store.updateRuntime(persist = false) { it.copy(error = ex.message.orEmpty()) }
+                                            engine.store.log("摇杆启动模拟：${ex.message}")
+                                        }
+                                    }
+                                }
                                 invalidate()
                                 return true
                             }

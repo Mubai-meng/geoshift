@@ -135,12 +135,12 @@ class RoadRouter(private val amap: AmapSdk) {
         if (!profile.road) return waypoints
         // OSRM natively supports multi-waypoint routing in one HTTP round-trip.
         if (!amap.ready && waypoints.size > 2) {
-            val multiKey = "osrm-many|${profile.name}|" + waypoints.joinToString(";") {
+            val multiKey = "osrm-many|${profile.osrm}|" + waypoints.joinToString(";") {
                 String.format(Locale.ROOT, "%.6f,%.6f", it.lat, it.lon)
             }
             synchronized(cache) { cache[multiKey]?.let { return it } }
             val allCached = waypoints.zipWithNext().all { (a, b) ->
-                val k = String.format(Locale.ROOT, "osrm|%s|%.6f,%.6f|%.6f,%.6f", profile.name, a.lat, a.lon, b.lat, b.lon)
+                val k = String.format(Locale.ROOT, "osrm|%s|%.6f,%.6f|%.6f,%.6f", profile.osrm, a.lat, a.lon, b.lat, b.lon)
                 synchronized(cache) { cache.containsKey(k) }
             }
             if (!allCached) {
@@ -160,7 +160,7 @@ class RoadRouter(private val amap: AmapSdk) {
     fun section(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
         if (!profile.road) return listOf(a, b)
         val useAmap = amap.ready
-        val key = String.format(Locale.ROOT, "%s|%s|%.6f,%.6f|%.6f,%.6f", if (useAmap) "amap" else "osrm", profile.name, a.lat, a.lon, b.lat, b.lon)
+        val key = String.format(Locale.ROOT, "%s|%s|%.6f,%.6f|%.6f,%.6f", if (useAmap) "amap" else "osrm", profile.osrm, a.lat, a.lon, b.lat, b.lon)
         synchronized(cache) { cache[key]?.let { return it } }
         val road = if (useAmap) {
             try { viaAmap(profile, a, b) } catch (e: AmapSdk.AmapError) {
