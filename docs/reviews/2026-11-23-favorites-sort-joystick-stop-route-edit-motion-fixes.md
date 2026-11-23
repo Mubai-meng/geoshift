@@ -1,6 +1,6 @@
 # 2026-11-23：收藏排序、摇杆停路线、路线重编辑与运动方式修复
 
-- **版本**：Geoshift `3.5.9` → `3.5.10`（versionCode `80`） + GeoshiftMotion `1.0.1`（versionCode `2`）
+- **版本**：Geoshift `3.5.9` → `3.5.10`（versionCode `80`） + GeoshiftMotion `1.0.1` → `1.0.2`（versionCode `3`）
 - **基线提交**：`0f19381`（`v3.5.8` 后）
 - **范围**：`:app`（存储、引擎、摇杆服务、收藏页、地图路线编辑、系统侧 `MOTION` 通道）与 `:motion`（步频模型、步数追踪器、传感器事件分发）
 
@@ -57,6 +57,11 @@
 - **悬浮窗常驻一键启动 / 停止**：`JoystickService.kt` 右下角按钮改为常驻，未模拟时显示绿色 `▶`（按当前路线/单点模式直接启动），模拟中显示红色 `■`（停止）。
 - **官网镜像清理**：实测移除返回 HTML 错误页的 `gh-proxy.net`，保留 `ghfast.top`、`gh-proxy.org`、`ghfile.geekertao.top`。
 
+### 6. `GeoshiftMotion 1.0.2` 小米系统步数库适配与诊断日志
+- **小米 HyperOS / MIUI 适配**：`MotionModule.kt` 新增 Hook `ContentResolver.query`，拦截 `content://com.miui.providers.steps`，在微信 / 小米运动健康查询今日步数分段时，将 `accumulator.totalSyntheticSteps` 叠加到返回 `Cursor` 的 `_steps` 列（0 行时构造单行 `MatrixCursor`）。
+- **提前累计步数**：在 `onPackageReady` 即启动轻量 `1.5s` 轮询，保证在目标 App 未提前注册传感器或查询步数前，跑路线期间产生的步数也能实时累计，打开微信运动即可看到。
+- **LSPosed / Vector 诊断日志**：记录模块加载进程、命中传感器类型、小米步数库查询叠加数及 `MOTION` 状态切换，便于真机排查。
+
 ---
 
 ## 二、验证快照
@@ -65,7 +70,7 @@
 - **静态检查**：`:motion:lintRelease` 0 错误；`:app:lintRelease` 新增代码 0 错误 0 警告（仅有既有 `Fakes.kt` 的 4 条 `NewApi` 报错）。
 - **发布构建**：`./build-release.sh` 与 `./build-motion.sh` 签名构建并通过 `apksigner verify`：
   - `../releases/Geoshift-3.5.10.apk`（28.8 MB，SHA-256：`492fb5a227118b7dadb21db93a3e1a482841445c7eb264b8176f843e2fad0063`）
-  - `../releases/GeoshiftMotion-1.0.1.apk`（33 KB，SHA-256：`2371bd3fd83e2474349c40b889a17d8002132390eacca547fea97194ca262385`）
+  - `../releases/GeoshiftMotion-1.0.2.apk`（37 KB，SHA-256：`fcda7ca749d7f2178092b67a9a7ff4de16b987f956c5282ac1b8eb2c3fcf5ba9`）
 - **真机/模拟器待验项**：
   - `GeoshiftMotion` 的 `BaseEventQueue` 构造函数 Hook 在不同 Android 版本/厂商 ROM 上是否总能捕获到 `Looper`（捕获不到时已兜底 `Looper.getMainLooper()`）。
   - 路线编辑在超多节点（>500 点的手选路线）下展开节点列表的交互流畅度。

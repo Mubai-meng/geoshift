@@ -1,14 +1,20 @@
 package app.geoshift.motion
 
+import android.content.ContentResolver
 import android.content.Context
+import android.database.Cursor
+import android.database.CursorWrapper
+import android.database.MatrixCursor
 import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
@@ -21,7 +27,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Companion Xposed module for Geoshift: synthesizes STEP_COUNTER, STEP_DETECTOR, ACCELEROMETER,
- * and LINEAR_ACCELERATION inside user-chosen target apps in sync with Geoshift's live speed.
+ * LINEAR_ACCELERATION, and Xiaomi MIUI/HyperOS system steps provider queries inside user-chosen
+ * target apps in sync with Geoshift's live speed.
  *
  * Kept separate from Geoshift so Geoshift's static system-only scope stays 100% zero-injection.
  */
@@ -58,7 +65,12 @@ class MotionModule : XposedModule() {
         if (installed) return
         if (param.packageName == "android" || param.packageName == SELF_GEOSHIFT || param.packageName == "app.geoshift.motion") return
         installed = true
+        log(Log.INFO, TAG, "loaded in ${param.packageName} ($processName)")
         installSensorHooks(param.classLoader)
+        installMiuiStepsHook()
+        // Start lightweight polling immediately so apps that read steps on demand (e.g. WeChat via
+        // MIUI StepsProvider) still receive all steps accumulated while a route was running.
+        ensureTicker()
     }
 
     private fun installSensorHooks(loader: ClassLoader) {
@@ -165,8 +177,78 @@ class MotionModule : XposedModule() {
                     chain.proceed()
                 }
             }
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
             // Never crash the target app if a ROM renames internal SensorEventQueue methods.
+            log(Log.WARN, TAG, "installSensorHooks failed in $processName", t)
+        }
+    }
+
+    /**
+     * On Xiaomi MIUI / HyperOS, WeChat Sports and Mi Fitness read today's step segments from
+     * content://com.miui.providers.steps instead of registering a SensorManager listener.
+     * Intercept those queries and add [accumulator.totalSyntheticSteps] onto the returned cursor.
+     */
+    private fun installMiuiStepsHook() {
+        try {
+            for (m in ContentResolver::class.java.declaredMethods) {
+                if (m.name != "query" || Modifier.isAbstract(m.modifiers)) continue
+                if (m.parameterTypes.firstOrNull() != Uri::class.java) continue
+                hook(m).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept { chain ->
+                    val res = chain.proceed()
+                    val uri = chain.args.firstOrNull() as? Uri ?: return@intercept res
+                    if (uri.authority != MIUI_STEPS_AUTHORITY) return@intercept res
+                    val cursor = res as? Cursor ?: return@intercept res
+                    val synth = accumulator.totalSyntheticSteps
+                    log(Log.INFO, TAG, "miui steps query in $processName: uri=$uri rows=${cursor.count} +synth=$synth")
+                    if (synth <= 0L) return@intercept res
+                    runCatching { wrapMiuiStepsCursor(cursor, synth) }.getOrDefault(cursor)
+                }
+            }
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "installMiuiStepsHook failed in $processName", t)
+        }
+    }
+
+    private fun wrapMiuiStepsCursor(cursor: Cursor, syntheticSteps: Long): Cursor {
+        val stepsCol = cursor.getColumnIndex("_steps")
+        if (stepsCol < 0) return cursor
+        if (cursor.count == 0) {
+            val cols = cursor.columnNames
+            if (cols.isNullOrEmpty()) return cursor
+            val now = System.currentTimeMillis()
+            val row = Array<Any?>(cols.size) { i ->
+                when (cols[i]) {
+                    "_id" -> 1L
+                    "_begin_time" -> now - 60_000L
+                    "_end_time" -> now
+                    "_mode" -> 2
+                    "_steps" -> syntheticSteps.toInt()
+                    else -> null
+                }
+            }
+            val synthetic = MatrixCursor(cols, 1).apply { addRow(row) }
+            runCatching { cursor.close() }
+            return synthetic
+        }
+        val delta = syntheticSteps.toInt()
+        return object : CursorWrapper(cursor) {
+            private fun isTarget(columnIndex: Int) = columnIndex == stepsCol && position == count - 1
+            override fun getInt(columnIndex: Int): Int =
+                super.getInt(columnIndex) + if (isTarget(columnIndex)) delta else 0
+            override fun getLong(columnIndex: Int): Long =
+                super.getLong(columnIndex) + if (isTarget(columnIndex)) syntheticSteps else 0L
+            override fun getShort(columnIndex: Int): Short =
+                (super.getShort(columnIndex) + if (isTarget(columnIndex)) delta else 0).toShort()
+            override fun getFloat(columnIndex: Int): Float =
+                super.getFloat(columnIndex) + if (isTarget(columnIndex)) syntheticSteps.toFloat() else 0f
+            override fun getDouble(columnIndex: Int): Double =
+                super.getDouble(columnIndex) + if (isTarget(columnIndex)) syntheticSteps.toDouble() else 0.0
+            override fun getString(columnIndex: Int): String? {
+                val base = super.getString(columnIndex)
+                if (!isTarget(columnIndex)) return base
+                val parsed = base?.toLongOrNull() ?: return base
+                return (parsed + syntheticSteps).toString()
+            }
         }
     }
 
@@ -185,6 +267,7 @@ class MotionModule : XposedModule() {
         synchronized(queues) {
             queues.getOrPut(queue) { TrackedQueue() }.handles[h] = sensor.type
         }
+        log(Log.INFO, TAG, "tracked sensor type=${sensor.type} in $processName")
         ensureTicker()
     }
 
@@ -198,8 +281,6 @@ class MotionModule : XposedModule() {
         }
     }
 
-    private fun hasActiveListeners(): Boolean = synchronized(queues) { queues.isNotEmpty() }
-
     private fun ensureTicker() {
         if (tickerRunning) return
         tickerRunning = true
@@ -208,13 +289,14 @@ class MotionModule : XposedModule() {
 
     private val tickRunnable = object : Runnable {
         override fun run() {
-            if (!hasActiveListeners()) {
-                tickerRunning = false
-                return
-            }
             val nowMs = SystemClock.elapsedRealtime()
             if (nowMs - motion.atMs >= POLL_MS) {
-                motion = queryGeoshift(nowMs)
+                val prev = motion
+                val next = queryGeoshift(nowMs)
+                if (prev.active != next.active || prev.foot != next.foot) {
+                    log(Log.INFO, TAG, "motion state in $processName: active=${next.active} foot=${next.foot} speed=${"%.2f".format(next.speed)} m/s totalSteps=${accumulator.totalSyntheticSteps}")
+                }
+                motion = next
             }
             val st = motion
             val effSpeed = st.effectiveSpeed
@@ -285,11 +367,13 @@ class MotionModule : XposedModule() {
     }
 
     private companion object {
+        const val TAG = "GeoshiftMotion"
         const val COMMAND = "geoshift"
         const val MOTION_KEY = "geoshift.motion.v1"
         const val SELF_GEOSHIFT = "app.geoshift"
-        const val POLL_MS = 1000L
+        const val MIUI_STEPS_AUTHORITY = "com.miui.providers.steps"
+        const val POLL_MS = 1500L
         const val STEP_TICK_MS = 100L
-        const val IDLE_TICK_MS = 1000L
+        const val IDLE_TICK_MS = 1500L
     }
 }
