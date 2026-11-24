@@ -235,7 +235,14 @@ fun positionName(r: Runtime, places: List<SavedPlace>, environments: List<Enviro
 data class LogEntry(val time: Long, val message: String)
 
 /** One diagnostics report from a hooked process. */
-data class Report(val ok: Boolean, val time: Long, val stage: String, val detail: String, val process: String)
+data class Report(
+    val ok: Boolean,
+    val time: Long,
+    val stage: String,
+    val detail: String,
+    val process: String,
+    val stack: String = "",
+)
 
 /** What the device and framework allow right now. */
 data class Capabilities(

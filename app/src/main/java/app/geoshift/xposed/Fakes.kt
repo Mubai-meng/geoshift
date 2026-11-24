@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.telephony.CellIdentityLte
 import android.telephony.CellInfoGsm
 import android.telephony.CellInfoLte
+import androidx.annotation.RequiresApi
 import app.geoshift.core.CellSpec
 import app.geoshift.core.CellType
 import app.geoshift.core.Fix
@@ -60,6 +61,7 @@ object Fakes {
 
     // ---- Satellites ---------------------------------------------------------------------------
 
+    @RequiresApi(Build.VERSION_CODES.R)
     fun gnss(c: SimConfig): GnssStatus {
         val b = GnssStatus.Builder()
         for (s in Sky.at(c, SystemClock.elapsedRealtime())) {
@@ -81,7 +83,16 @@ object Fakes {
     fun cell(v: CellSpec): Any {
         val lte = v.type == CellType.LTE
         val nr = v.type == CellType.NR
-        val info = Reflect.newInstance(if (nr) android.telephony.CellInfoNr::class.java else if (lte) CellInfoLte::class.java else CellInfoGsm::class.java)
+        val cellClass: Class<*> = when {
+            nr -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                android.telephony.CellInfoNr::class.java
+            } else {
+                error("NR cells require Android 10+")
+            }
+            lte -> CellInfoLte::class.java
+            else -> CellInfoGsm::class.java
+        }
+        val info = Reflect.newInstance(cellClass)
         val identity = Reflect.call(info, "getCellIdentity")!!
         val signal = Reflect.call(info, "getCellSignalStrength")!!
         if (Reflect.hasField(identity.javaClass, "mMccStr")) {

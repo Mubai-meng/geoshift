@@ -29,6 +29,9 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
     private val _reports = MutableStateFlow<Map<String, Report>>(emptyMap())
     val reports: StateFlow<Map<String, Report>> = _reports.asStateFlow()
 
+    private val _sessionStartedAt = MutableStateFlow(0L)
+    val sessionStartedAt: StateFlow<Long> = _sessionStartedAt.asStateFlow()
+
     /** elapsedRealtime of the last PING system_server answered. */
     @Volatile var seenAt = -1L
         private set
@@ -121,10 +124,18 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
         if (!b.getBoolean("active")) return false
         seenAt = SystemClock.elapsedRealtime()
         hookConfig = b.getString("config")?.let { runCatching { SimConfig.decode(it) }.getOrNull() }
+        _sessionStartedAt.value = b.getLong("session_started_at", 0L)
         val json = runCatching { JSONObject(b.getString("reports") ?: "{}") }.getOrNull() ?: return true
         _reports.value = json.keys().asSequence().mapNotNull { key ->
             json.optJSONObject(key)?.let {
-                key to Report(it.optBoolean("ok"), it.optLong("time"), it.optString("stage"), it.optString("detail"), it.optString("process"))
+                key to Report(
+                    ok = it.optBoolean("ok"),
+                    time = it.optLong("time"),
+                    stage = it.optString("stage"),
+                    detail = it.optString("detail"),
+                    process = it.optString("process"),
+                    stack = it.optString("stack"),
+                )
             }
         }.toMap()
         return true

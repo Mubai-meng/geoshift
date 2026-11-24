@@ -132,8 +132,10 @@ object Sim {
     }
 
     private fun publish(c: SimConfig) {
-        val changed = c != effective
+        val prev = effective
+        val changed = c != prev
         effective = c
+        if (c.active && !prev.active) Diag.markSessionStarted()
         if (changed) synchronized(listeners) { listeners.toList() }.forEach { runCatching(it) }
     }
 
@@ -164,6 +166,8 @@ object Sim {
 object Diag {
     @Volatile var isSystemServer = false
     @Volatile var processName = ""
+    /** Wall-clock time when the current active simulation session started in system_server. */
+    @Volatile var sessionStartedAt = 0L
     /** Each process reports its own config state. */
     val configKey get() = when {
         isSystemServer -> "config_system"
@@ -174,14 +178,41 @@ object Diag {
     private val lastSent = ConcurrentHashMap<String, Pair<Long, String>>()
     private const val THROTTLE_MS = 3000L
 
-    fun report(feature: String, ok: Boolean, stage: String, detail: String) {
+    fun markSessionStarted() {
+        if (isSystemServer) sessionStartedAt = System.currentTimeMillis()
+    }
+
+    fun report(feature: String, ok: Boolean, stage: String, detail: String, error: Throwable? = null) {
         val now = SystemClock.elapsedRealtime()
         val last = lastSent[feature]
         if (last != null && now - last.first < THROTTLE_MS && last.second == stage) return
         lastSent[feature] = now to stage
         val json = JSONObject().put("ok", ok).put("stage", stage).put("detail", detail.take(300))
             .put("time", System.currentTimeMillis()).put("process", processName.take(100))
+        if (error != null) json.put("stack", formatStack(error))
         if (isSystemServer) reports[feature] = json else forward(feature, json)
+    }
+
+    internal fun formatStack(error: Throwable, maxFrames: Int = 10, maxChars: Int = 1200): String {
+        val out = StringBuilder()
+        var cur: Throwable? = error
+        var depth = 0
+        while (cur != null && depth < 3 && out.length < maxChars) {
+            if (depth > 0) out.append("\nCaused by: ")
+            out.append(cur.javaClass.name)
+            cur.message?.takeIf { it.isNotBlank() }?.let { out.append(": ").append(it) }
+            val frames = cur.stackTrace
+            for (i in 0 until minOf(frames.size, maxFrames)) {
+                out.append("\n  at ").append(frames[i])
+                if (out.length >= maxChars) break
+            }
+            if (frames.size > maxFrames && out.length < maxChars) {
+                out.append("\n  ... ${frames.size - maxFrames} more")
+            }
+            cur = cur.cause
+            depth++
+        }
+        return if (out.length > maxChars) out.substring(0, maxChars) else out.toString()
     }
 
     private fun forward(feature: String, json: JSONObject) {
@@ -200,7 +231,8 @@ object Diag {
         val out = JSONObject()
         for ((k, v) in reports) out.put(k, v)
         if (Reflect.missing.isNotEmpty()) {
-            out.put("missing", JSONObject().put("ok", false).put("stage", "error").put("time", System.currentTimeMillis())
+            val latestMissingAt = Reflect.missingAt.values.maxOrNull() ?: System.currentTimeMillis()
+            out.put("missing", JSONObject().put("ok", false).put("stage", "error").put("time", latestMissingAt)
                 .put("process", "system_server")
                 .put("detail", Reflect.missing.entries.joinToString("；") { "${it.key}（${it.value}）" }.take(600)))
         }

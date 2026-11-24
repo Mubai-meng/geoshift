@@ -16,8 +16,6 @@ import app.geoshift.xposed.Log
 import app.geoshift.xposed.Reflect
 import app.geoshift.xposed.Sim
 import java.lang.ref.WeakReference
-import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
@@ -57,23 +55,27 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
 
     private fun active(): SimConfig? = Sim.config.takeIf { it.locationOn }
 
+    @Volatile private var identityMissLogged = false
+
     fun install() {
         val lpm = Reflect.requireClass("com.android.server.location.provider.LocationProviderManager", loader, "系统定位")
             ?: error("LocationProviderManager")
+        // Discover and validate all required entry points BEFORE installing any hooks, so a failure
+        // never leaves real reports dropped while the simulation pump is unstarted.
+        val entries = LocationCompat.discoverEntries(lpm, loader)
+        val reportsCount = entries.reports.size
+        val cachedCount = entries.cached.size
+        check(reportsCount > 0 && cachedCount > 0) {
+            "定位入口缺失：report=$reportsCount, last=$cachedCount；候选：${LocationCompat.describeLocationCandidates(lpm)}"
+        }
         hooks.constructors(lpm) { c -> hooks.after(c) { managers.add(it.thisObject!!) } }
-        var reports = 0
-        for (m in methods(lpm, nested = false) { it.name == "onReportLocation" && firstParam(it) == "android.location.LocationResult" }) {
-            hooks.before(m, ::onReport); reports++
-        }
-        var cached = 0
-        for (m in methods(lpm, nested = false) { it.name == "getLastLocation" && it.returnType == Location::class.java }) {
-            hooks.after(m, ::onCached); cached++
-        }
-        deliveryHooks = hookDeliveries(lpm)
-        check(reports > 0 && cached > 0) { "定位入口缺失：report=$reports, last=$cached" }
-        watchRegistrations()
+        for (m in entries.reports) hooks.before(m, ::onReport)
+        for (m in entries.cached) hooks.after(m, ::onCached)
+        if (entries.deliveries.isEmpty()) Reflect.recordMissing("LocationProviderManager.acceptLocationChange", "定位交付")
+        for (m in entries.deliveries) hooks.before(m, ::onDelivery)
+        deliveryHooks = entries.deliveries.size
         Sim.onChange { schedule(0) }
-        Diag.report("location_system", true, "installed", "系统定位入口已安装（上报 $reports · 缓存 $cached · 交付 $deliveryHooks）")
+        Diag.report("location_system", true, "installed", "系统定位入口已安装（上报 $reportsCount · 缓存 $cachedCount · 交付 $deliveryHooks）")
         schedule(0)
     }
 
@@ -122,43 +124,39 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
         val name = nameOf(call.thisObject ?: return)
         if (name !in providers && name != "passive") return
         val provider = if (name == "passive") "gps" else name
+        val returnsResult = call.returnType.name == "android.location.LocationResult"
         val c = active()
-        val result = call.result as? Location
+        val raw = call.result
+        val result: Location? = when {
+            raw is Location -> raw
+            returnsResult && raw != null -> Fakes.lastOf(raw)
+            else -> null
+        }
         if (c == null) {
-            if (staleSimulated(result, name)) call.result = afterStop(provider)
+            if (staleSimulated(result, name)) {
+                val restored = afterStop(provider)
+                call.result = if (returnsResult) restored?.let { Fakes.wrap(it) } else restored
+            }
             return
         }
         if (c.selectedOnly && !AppScope.covers(c, identityUid(call.args))) {
             // Not chosen: the real last fix, never a simulated one left in the provider cache.
-            if (result != null && nearSimulated(c, result)) call.result = realFix(provider)
+            if (result != null && nearSimulated(c, result)) {
+                val real = realFix(provider)
+                call.result = if (returnsResult) real?.let { Fakes.wrap(it) } else real
+            }
             return
         }
         try {
-            call.result = Fakes.location(c, provider)
+            val fake = Fakes.location(c, provider)
+            call.result = if (returnsResult) Fakes.wrap(fake) else fake
         } catch (e: Throwable) {
             call.result = null
-            Diag.report("location_delivery", false, "error", "缓存定位替换失败，已阻止返回真实数据：${e.javaClass.simpleName}")
+            Diag.report("location_delivery", false, "error", "缓存定位替换失败，已阻止返回真实数据：${e.javaClass.simpleName}", error = e)
         }
     }
 
     // ---- Deliveries to apps -------------------------------------------------------------------
-
-    /** Registration classes nested in LocationProviderManager (Android 12–16). */
-    private val registrations = listOf("\$Registration", "\$LocationRegistration", "\$LocationListenerRegistration",
-        "\$LocationPendingIntentRegistration", "\$GetCurrentLocationListenerRegistration")
-
-    private fun hookDeliveries(lpm: Class<*>): Int {
-        // Optimised system jars drop the inner-class metadata getDeclaredClasses() relies on, so the
-        // registration classes are also looked up by name.
-        val targets = LinkedHashSet<Method>()
-        targets += methods(lpm, nested = true, ::isDelivery)
-        for (suffix in registrations) Reflect.classOrNull(lpm.name + suffix, loader)?.let { targets += methods(it, nested = true, ::isDelivery) }
-        if (targets.isEmpty()) Reflect.missing["LocationProviderManager.acceptLocationChange"] = "定位交付"
-        for (m in targets) hooks.before(m, ::onDelivery)
-        return targets.size
-    }
-
-    private fun isDelivery(m: Method) = m.name == "acceptLocationChange" && firstParam(m) == "android.location.LocationResult"
 
     private fun onDelivery(call: app.geoshift.xposed.Call) {
         val packet = call.args.firstOrNull() ?: return
@@ -186,22 +184,33 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
             progress(call.thisObject)
         } catch (e: Throwable) {
             call.drop()
-            Diag.report("location_delivery", false, "error", "定位交付替换失败，已阻止返回真实数据：${e.javaClass.simpleName}")
+            Diag.report("location_delivery", false, "error", "定位交付替换失败，已阻止返回真实数据：${e.javaClass.simpleName}", error = e)
             Log.w("delivery", e)
         }
     }
 
-    private fun targetOf(registration: Any?): String = try {
-        val identity = Reflect.call(registration!!, "getIdentity")!!
-        (Reflect.call(identity, "getPackageName") as? String ?: "?").take(100)
-    } catch (_: Throwable) {
-        "包名不可用"
+    private fun targetOf(registration: Any?): String {
+        val info = LocationCompat.resolveIdentity(registration)
+        if (info?.packageName != null) return info.packageName.take(100)
+        logIdentityMissOnce(registration)
+        return "包名不可用"
     }
 
-    private fun registrationUid(registration: Any?): Int = try {
-        Reflect.call(Reflect.call(registration!!, "getIdentity")!!, "getUid") as Int
-    } catch (_: Throwable) {
-        -1
+    private fun registrationUid(registration: Any?): Int {
+        val info = LocationCompat.resolveIdentity(registration)
+        if (info?.uid != null) return info.uid
+        if (registration != null) {
+            val cls = registration.javaClass
+            Reflect.recordMissing("${cls.name.substringAfterLast('.')}.identity", "定位归属")
+            logIdentityMissOnce(registration)
+        }
+        return -1
+    }
+
+    private fun logIdentityMissOnce(registration: Any?) {
+        if (registration == null || identityMissLogged) return
+        identityMissLogged = true
+        Log.w("registration identity unresolved on ${registration.javaClass.name}; candidates=${LocationCompat.describeIdentityCandidates(registration.javaClass)}")
     }
 
     /** Owner uid of a provider request / registration identity argument, or -1. */
@@ -216,7 +225,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
      * Records which app owns each location / GNSS / phone-state callback (for "selected" mode), and
      * runs the pump right after an app starts listening instead of at the next tick.
      */
-    private fun watchRegistrations() {
+    internal fun installRegistrations() {
         val lms = Reflect.firstClass(listOf("com.android.server.location.LocationManagerService",
             "com.android.server.LocationManagerService"), loader, "定位服务")
         if (lms != null) hooks.constructors(lms) { c -> hooks.after(c) { call -> call.thisObject?.let { attachService(it) } } }
@@ -335,23 +344,6 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
     // ---- Helpers ------------------------------------------------------------------------------
 
     private fun nameOf(manager: Any): String = (Reflect.getOrNull(manager, "mName") as? String).orEmpty()
-
-    private fun firstParam(m: Method) = m.parameterTypes.firstOrNull()?.name
-
-    /** Concrete methods matching [predicate] in [type], its superclasses and (if [nested]) its declared nested classes. */
-    private fun methods(type: Class<*>, nested: Boolean, predicate: (Method) -> Boolean): List<Method> {
-        val out = LinkedHashSet<Method>()
-        val queue = ArrayDeque<Class<*>>().apply { add(type) }
-        val seen = HashSet<Class<*>>()
-        while (queue.isNotEmpty()) {
-            val t = queue.removeFirst()
-            if (t == Any::class.java || !seen.add(t)) continue
-            if (nested) runCatching { queue.addAll(t.declaredClasses) }
-            t.superclass?.let { queue.add(it) }
-            for (m in t.declaredMethods) if (!Modifier.isAbstract(m.modifiers) && predicate(m)) out.add(m)
-        }
-        return out.toList()
-    }
 
     private fun count(map: ConcurrentHashMap<String, AtomicLong>, key: String) {
         map.getOrPut(key) { AtomicLong() }.incrementAndGet()

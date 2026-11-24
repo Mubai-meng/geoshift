@@ -494,72 +494,78 @@ private val DIAGNOSTICS = listOf(
 /** One status line per system entry; folded to a summary by default. */
 @Composable
 private fun Diagnostics(s: AppState, expanded: Boolean, onToggle: () -> Unit, onOpenSetup: () -> Unit, onCheckIp: () -> Unit) {
+    val nowMs = System.currentTimeMillis()
     val rows = DIAGNOSTICS.map { (key, title) ->
         val report = s.reports[key]
-        val status = when {
-            key == "wifi" && !s.settings.hideEnvironment && !s.runtime.wifiEnabled -> "未启用"
-            key == "bluetooth" && !s.settings.hideEnvironment -> "未启用"
-            report == null && key.startsWith("missing") -> "无"
-            key.startsWith("config") && report == null -> "暂无报告"
-            report == null -> "暂无报告"
-            report.ok && report.stage == "installed" -> "已安装"
-            System.currentTimeMillis() - report.time > 60_000 -> "历史报告"
-            !report.ok -> "出现错误"
-            report.stage == "read" -> "已命中"
-            report.stage == "injected" -> "已注入"
-            report.stage == "waiting" -> "等待中"
-            report.stage == "synced" -> "已同步"
-            report.stage == "stale" -> "已忽略"
-            else -> "已安装"
-        }
+        val classified = app.geoshift.data.Diagnostics.classify(
+            key = key,
+            report = report,
+            simActive = s.runtime.enabled,
+            hideEnvironment = s.settings.hideEnvironment,
+            wifiEnabled = s.runtime.wifiEnabled,
+            sessionStartedAt = s.sessionStartedAt,
+            nowMs = nowMs,
+        )
         val details = if (report == null) when (key) {
             "wifi" -> "开始模拟后，等待应用读取 Wi-Fi 时报告。"
             "phone" -> "需勾选「电话服务」并重启；应用查询基站时报告。"
             "missing", "missing_phone" -> "所有按名称查找的系统入口都已找到。"
             "config_system", "config_phone", "config_bluetooth" -> "该进程尚未收到 App 写入的配置。"
-            "location_delivery" -> "开始模拟且有应用接收定位后显示改写次数。"
+            "location_delivery" -> if (s.runtime.enabled) "等待应用接收定位后显示改写次数。" else "未启动模拟；开始模拟且有应用接收定位后显示改写次数。"
             "bluetooth" -> "需勾选「蓝牙」并重启；应用扫描蓝牙时报告。"
-            "location_pump" -> "开始模拟后显示已发现的提供器及推送成功、失败次数。"
+            "location_pump" -> if (s.runtime.enabled) "等待定位泵上报提供器推送计数。" else "未启动模拟；开始模拟后显示提供器及推送计数。"
             else -> "尚无系统报告；入口安装与目标应用实际接收需分别验证。"
         } else listOf(report.detail, report.process, formatTime(report.time, "HH:mm:ss"))
             .filter { it.isNotEmpty() }.joinToString(" · ")
-        Triple(title, status, details)
+        DiagnosticRowData(title, classified, details, report?.stack.orEmpty())
     }
-    val errors = rows.count { it.second == "出现错误" }
-    val working = rows.count { it.second in setOf("已命中", "已注入", "已安装", "已同步", "无") }
+    val errors = rows.count { it.status.isError }
+    val working = rows.count { it.status.isHealthy }
     SettingGroup {
         SettingRow("系统定位诊断",
             if (errors > 0) "$errors 项出现错误" else "$working / ${rows.size} 项已安装或命中",
             icon = Icons.Rounded.MonitorHeart, value = if (expanded) "收起" else "展开", onClick = onToggle)
         AnimatedVisibility(expanded) {
             Column {
-                rows.forEach { (title, status, details) ->
+                rows.forEach { row ->
                     RowDivider()
                     Row(
                         Modifier.fillMaxWidth().padding(start = 54.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(title, style = MaterialTheme.typography.bodyMedium)
+                            Text(row.title, style = MaterialTheme.typography.bodyMedium)
                             Spacer(Modifier.size(2.dp))
                             Text(
-                                details,
+                                row.details,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontFamily = FontFamily.Monospace,
                                     fontFeatureSettings = "tnum",
                                 ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (row.stack.isNotEmpty()) {
+                                Spacer(Modifier.size(4.dp))
+                                Text(
+                                    row.stack,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontFeatureSettings = "tnum",
+                                    ),
+                                    color = MaterialTheme.colorScheme.error,
+                                    maxLines = 6,
+                                )
+                            }
                         }
                         Spacer(Modifier.width(8.dp))
                         StatusPill(
-                            text = status,
-                            tone = when (status) {
-                                "出现错误" -> StatusTone.Error
-                                "已命中", "已注入" -> StatusTone.Live
-                                "已安装", "已同步" -> StatusTone.Info
-                                "等待中", "历史报告" -> StatusTone.Warn
-                                else -> StatusTone.Muted
+                            text = row.status.label,
+                            tone = when (row.status.tone) {
+                                app.geoshift.data.DiagnosticTone.ERROR -> StatusTone.Error
+                                app.geoshift.data.DiagnosticTone.LIVE -> StatusTone.Live
+                                app.geoshift.data.DiagnosticTone.INFO -> StatusTone.Info
+                                app.geoshift.data.DiagnosticTone.WARN -> StatusTone.Warn
+                                app.geoshift.data.DiagnosticTone.MUTED -> StatusTone.Muted
                             },
                         )
                     }
@@ -573,3 +579,10 @@ private fun Diagnostics(s: AppState, expanded: Boolean, onToggle: () -> Unit, on
         }
     }
 }
+
+private data class DiagnosticRowData(
+    val title: String,
+    val status: app.geoshift.data.DiagnosticStatus,
+    val details: String,
+    val stack: String,
+)

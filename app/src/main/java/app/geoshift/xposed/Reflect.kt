@@ -29,12 +29,19 @@ object Log {
 object Reflect {
     /** Missing class / member name -> where it was needed. */
     val missing = ConcurrentHashMap<String, String>()
+    /** First observed wall-clock timestamp for each missing entry. */
+    val missingAt = ConcurrentHashMap<String, Long>()
 
     private val methods = ConcurrentHashMap<String, Method>()
     private val absentMethods = ConcurrentHashMap.newKeySet<String>()
     private val constructors = ConcurrentHashMap<String, Constructor<*>>()
     private val fields = ConcurrentHashMap<String, Field>()
     private val absent = ConcurrentHashMap.newKeySet<String>()
+
+    fun recordMissing(label: String, feature: String) {
+        missing.putIfAbsent(label, feature)
+        missingAt.putIfAbsent(label, System.currentTimeMillis())
+    }
 
     fun classOrNull(name: String, loader: ClassLoader?): Class<*>? = try {
         Class.forName(name, false, loader)
@@ -44,11 +51,11 @@ object Reflect {
 
     /** A class that must exist for [feature]; recorded as missing when it does not. */
     fun requireClass(name: String, loader: ClassLoader?, feature: String): Class<*>? =
-        classOrNull(name, loader) ?: null.also { missing[name] = feature }
+        classOrNull(name, loader) ?: null.also { recordMissing(name, feature) }
 
     fun firstClass(names: List<String>, loader: ClassLoader?, feature: String?): Class<*>? {
         for (n in names) classOrNull(n, loader)?.let { return it }
-        if (feature != null) missing[names.joinToString(" / ")] = feature
+        if (feature != null) recordMissing(names.joinToString(" / "), feature)
         return null
     }
 
@@ -186,7 +193,7 @@ object Reflect {
 
     private fun missingMember(type: Class<*>, name: String, feature: String): NoSuchMethodException {
         val label = type.name.substringAfterLast('.') + "." + name
-        missing[label] = feature
+        recordMissing(label, feature)
         return NoSuchMethodException(label)
     }
 }

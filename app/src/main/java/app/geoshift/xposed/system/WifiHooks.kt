@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicReference
  * connection names the simulated one or a hidden BSSID. Covers WifiManager and the Wi-Fi details apps
  * read from ConnectivityManager network capabilities. The radio is untouched.
  */
-class WifiHooks(private val hooks: Hooker, private val loader: ClassLoader, private val ownUid: () -> Int) {
+class WifiHooks(private val hooks: Hooker, private val loader: ClassLoader, private val isOwnUid: (Int) -> Boolean) {
     private val implementation = "com.android.server.wifi.WifiServiceImpl"
     // Android 14+ repackages ConnectivityService inside the Tethering module.
     private val connectivity = listOf("android.net.connectivity.com.android.server.ConnectivityService", "com.android.server.ConnectivityService")
@@ -37,7 +37,7 @@ class WifiHooks(private val hooks: Hooker, private val loader: ClassLoader, priv
 
     /** The config when this app should see simulated Wi-Fi. */
     private fun activeFor(uid: Int): SimConfig? {
-        if (uid < 10000 || uid == ownUid()) return null
+        if (uid < 10000 || isOwnUid(uid)) return null
         val c = Sim.config
         if (!c.wifiOn || !AppScope.covers(c, uid)) return null
         return c

@@ -44,6 +44,8 @@ data class AppState(
     val environments: List<EnvironmentRecord>,
     val logs: List<LogEntry>,
     val reports: Map<String, Report>,
+    /** Wall-clock start time of the current active simulation session reported by system_server. */
+    val sessionStartedAt: Long = 0L,
     /** AMap Android key saved: official AMap map, search and routes. */
     val sdkKeyConfigured: Boolean,
 ) {
@@ -78,12 +80,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         store.ready,
         combine(store.settings, store.runtime, engine.caps, ::Triple),
         records,
-        combine(store.logs, engine.bridge.reports, store.sdkKey, ::Triple),
-    ) { ready, (settings, runtime, caps), r, (logs, reports, sdkKey) ->
+        combine(store.logs, engine.bridge.reports, engine.bridge.sessionStartedAt, store.sdkKey) { logs, reports, sessionAt, sdkKey ->
+            DiagBundle(logs, reports, sessionAt, sdkKey)
+        },
+    ) { ready, (settings, runtime, caps), r, d ->
         if (!ready) null
-        else AppState(Geoshift.VERSION, settings, runtime, caps, r.places, r.routes, r.wifi, r.cells, r.environments, logs, reports,
-            sdkKey.isNotEmpty())
+        else AppState(Geoshift.VERSION, settings, runtime, caps, r.places, r.routes, r.wifi, r.cells, r.environments,
+            d.logs, d.reports, d.sessionStartedAt, d.sdkKey.isNotEmpty())
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private class DiagBundle(val logs: List<LogEntry>, val reports: Map<String, Report>, val sessionStartedAt: Long, val sdkKey: String)
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages: SharedFlow<String> = _messages

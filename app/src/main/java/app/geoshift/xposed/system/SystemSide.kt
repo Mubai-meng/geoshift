@@ -25,8 +25,7 @@ import org.json.JSONObject
  * Every other caller gets the stock behaviour, so no ordinary app can tell the module is there.
  */
 class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
-    @Volatile private var cachedUid = -1
-    @Volatile private var uidCheckedAt = 0L
+    private val ownUidCache = java.util.concurrent.ConcurrentHashMap<Int, Pair<Boolean, Long>>()
     private val FEATURE = Regex("[a-z_]{1,30}")
 
     fun install() {
@@ -34,12 +33,15 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
         Diag.processName = "system_server"
         val location = LocationHooks(hooks, loader)
         hookCommands(location)
+        // Install callback-owner tracking independently of LocationHooks so CallbackHooks still
+        // knows which app owns each Binder proxy even if LocationProviderManager hooks fail.
+        step("callbacks", "回调归属") { location.installRegistrations() }
         step("location_system", "系统定位") {
             check(Build.VERSION.SDK_INT >= 31) { "需要 Android 12 或更新版本" }
             location.install()
         }
         step("callbacks", "应用回调") { CallbackHooks(hooks, loader, location).install() }
-        step("wifi", "Wi-Fi") { WifiHooks(hooks, loader, ::ownUid).install() }
+        step("wifi", "Wi-Fi") { WifiHooks(hooks, loader, ::isOwnUid).install() }
     }
 
     private inline fun step(feature: String, label: String, block: () -> Unit) {
@@ -47,21 +49,48 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
             block()
         } catch (e: Throwable) {
             Log.w("$label install", e)
-            Diag.report(feature, false, "error", "${label}入口安装失败：${e.javaClass.simpleName} ${e.message.orEmpty()}".trim())
+            Diag.report(feature, false, "error", "${label}入口安装失败：${e.javaClass.simpleName} ${e.message.orEmpty()}".trim(), error = e)
         }
     }
 
-    private fun ownUid(refreshIfStale: Boolean = false): Int {
+    /**
+     * Recognizes Geoshift across all Android users (primary User 0, Second Space / Work Profile /
+     * Dual Apps where uid = userId * 100000 + appId).
+     */
+    private fun isOwnUid(uid: Int): Boolean {
+        if (uid < 10000 || uid % 100000 < 10000) return false
         val now = SystemClock.elapsedRealtime()
-        if (cachedUid < 0 || (refreshIfStale && now - uidCheckedAt > 5_000L)) {
-            uidCheckedAt = now
-            cachedUid = try {
-                Contexts.get()!!.packageManager.getApplicationInfo(Bridge.SELF, 0).uid
-            } catch (_: Throwable) {
-                return -2
-            }
+        ownUidCache[uid]?.let { (hit, at) ->
+            if (now - at < 60_000L) return hit
         }
-        return cachedUid
+        val pm = Contexts.get()?.packageManager ?: return false
+        val matched = isSelfUid(
+            uid = uid,
+            packagesForUid = { targetUid -> runCatching { pm.getPackagesForUid(targetUid) }.getOrNull() },
+            primarySelfUid = { runCatching { pm.getApplicationInfo(Bridge.SELF, 0).uid }.getOrNull() },
+        )
+        ownUidCache[uid] = matched to now
+        return matched
+    }
+
+    internal companion object {
+        const val PER_USER_RANGE = 100_000
+
+        fun isSelfUid(
+            uid: Int,
+            packagesForUid: (Int) -> Array<String>?,
+            primarySelfUid: () -> Int?,
+        ): Boolean {
+            if (uid < 10000) return false
+            val appId = uid % PER_USER_RANGE
+            if (appId < 10000) return false
+            val exact = packagesForUid(uid)
+            if (exact != null) return Bridge.SELF in exact
+            val byAppId = packagesForUid(appId)
+            if (byAppId != null) return Bridge.SELF in byAppId
+            val primary = primarySelfUid() ?: return false
+            return primary >= 10000 && primary % PER_USER_RANGE == appId
+        }
     }
 
     private fun hookCommands(location: LocationHooks) {
@@ -86,7 +115,7 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
                     call.result = if (call.returnType == java.lang.Boolean.TYPE) true else null
                     return@before
                 }
-                val own = uid == ownUid() || (uid >= 10000 && uid == ownUid(refreshIfStale = true))
+                val own = isOwnUid(uid)
                 if (!own && uid >= 10000) return@before // Stock behaviour for everyone else.
                 call.thisObject?.let { location.attachService(it) }
                 call.result = if (call.returnType == java.lang.Boolean.TYPE) true else null
@@ -107,6 +136,7 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
                 extras.putBoolean("active", true)
                 extras.putString("reports", Diag.snapshot().toString())
                 extras.putString("config", Sim.config.encode())
+                extras.putLong("session_started_at", Diag.sessionStartedAt)
             }
             "SET" -> if (own) extras.getString("config")?.let { Sim.accept(it) }
             "MOVE" -> if (own) Sim.moveTo(LatLon(extras.getDouble("lat"), extras.getDouble("lon")),
