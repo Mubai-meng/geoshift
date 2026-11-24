@@ -20,7 +20,8 @@
     <queries>
         <package android:name="org.lsposed.manager"/>
         <package android:name="org.matrix.vector.manager"/>
-        <!-- App picker for "模拟范围": launchable apps only, no QUERY_ALL_PACKAGES. -->
+        <!-- 模拟范围 lists launchable apps and Google Play services. -->
+        <package android:name="com.google.android.gms"/>
         <intent>
             <action android:name="android.intent.action.MAIN"/>
             <category android:name="android.intent.category.LAUNCHER"/>

@@ -1,6 +1,7 @@
 package app.geoshift.ui.settings
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private data class AppEntry(val label: String, val pkg: String)
+private const val GOOGLE_PLAY_SERVICES = "com.google.android.gms"
 
 /**
  * Chooses which apps see the simulation. "All apps" is the default; "only chosen apps" leaves every
@@ -68,8 +70,15 @@ fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, o
             val chosenSet = chosen.toHashSet()
             val pm = context.packageManager
             val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            pm.queryIntentActivities(launcher, 0)
+            val googlePlayServices = try {
+                val info = pm.getApplicationInfo(GOOGLE_PLAY_SERVICES, 0)
+                AppEntry(info.loadLabel(pm).toString(), info.packageName)
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            }
+            val launchableApps = pm.queryIntentActivities(launcher, 0)
                 .map { AppEntry(it.loadLabel(pm).toString(), it.activityInfo.packageName) }
+            (listOfNotNull(googlePlayServices) + launchableApps)
                 .filter { it.pkg != context.packageName }
                 .distinctBy { it.pkg }
                 .sortedWith(compareBy({ it.pkg !in chosenSet }, { it.label.lowercase() }))
