@@ -64,8 +64,8 @@ object CadenceModel {
  */
 class StepAccumulator {
     private var lastMs = -1L
-    private var stepPhase = 0.0 // fractional steps since start; integer crossings emit steps
-    var totalSyntheticSteps: Long = 0L
+    @Volatile private var stepPhase = 0.0 // fractional steps since start; integer crossings emit steps
+    @Volatile var totalSyntheticSteps: Long = 0L
         private set
 
     /** Current gait phase in radians (0 .. 4π so half-frequency stride sway stays continuous). */

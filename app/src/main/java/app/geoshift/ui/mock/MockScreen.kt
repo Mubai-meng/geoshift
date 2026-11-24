@@ -487,7 +487,7 @@ private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
 private val DIAGNOSTICS = listOf(
     "config_system" to "配置同步（系统框架）", "config_phone" to "配置同步（电话服务）", "config_bluetooth" to "配置同步（蓝牙）",
     "location_system" to "系统定位入口", "location_pump" to "持续位置推送",
-    "location_delivery" to "定位交付改写", "callbacks" to "应用回调与卫星/基站", "wifi" to "Wi-Fi 伪装",
+    "location_delivery" to "定位交付改写", "callbacks" to "应用回调与卫星/基站", "callback_owners" to "回调归属追踪", "wifi" to "Wi-Fi 伪装",
     "phone" to "电话服务基站", "bluetooth" to "蓝牙扫描", "missing" to "缺失入口（系统框架）", "missing_phone" to "缺失入口（电话服务）",
 )
 

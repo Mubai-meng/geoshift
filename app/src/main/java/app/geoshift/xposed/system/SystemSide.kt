@@ -35,7 +35,7 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
         hookCommands(location)
         // Install callback-owner tracking independently of LocationHooks so CallbackHooks still
         // knows which app owns each Binder proxy even if LocationProviderManager hooks fail.
-        step("callbacks", "回调归属") { location.installRegistrations() }
+        step("callback_owners", "回调归属") { location.installRegistrations() }
         step("location_system", "系统定位") {
             check(Build.VERSION.SDK_INT >= 31) { "需要 Android 12 或更新版本" }
             location.install()

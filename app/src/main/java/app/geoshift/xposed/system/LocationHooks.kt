@@ -56,6 +56,8 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
     private fun active(): SimConfig? = Sim.config.takeIf { it.locationOn }
 
     @Volatile private var identityMissLogged = false
+    /** Location handlers and the pump stay idle until hook installation completes. */
+    @Volatile private var installed = false
 
     fun install() {
         val lpm = Reflect.requireClass("com.android.server.location.provider.LocationProviderManager", loader, "系统定位")
@@ -74,6 +76,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
         if (entries.deliveries.isEmpty()) Reflect.recordMissing("LocationProviderManager.acceptLocationChange", "定位交付")
         for (m in entries.deliveries) hooks.before(m, ::onDelivery)
         deliveryHooks = entries.deliveries.size
+        installed = true
         Sim.onChange { schedule(0) }
         Diag.report("location_system", true, "installed", "系统定位入口已安装（上报 $reportsCount · 缓存 $cachedCount · 交付 $deliveryHooks）")
         schedule(0)
@@ -82,6 +85,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
     // ---- Real reports -------------------------------------------------------------------------
 
     private fun onReport(call: app.geoshift.xposed.Call) {
+        if (!installed) return
         val manager = call.thisObject ?: return
         managers.add(manager)
         if (injecting.get()) return // The pump's own report: already simulated.
@@ -121,6 +125,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
     // ---- Cached last fix ----------------------------------------------------------------------
 
     private fun onCached(call: app.geoshift.xposed.Call) {
+        if (!installed) return
         val name = nameOf(call.thisObject ?: return)
         if (name !in providers && name != "passive") return
         val provider = if (name == "passive") "gps" else name
@@ -159,6 +164,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
     // ---- Deliveries to apps -------------------------------------------------------------------
 
     private fun onDelivery(call: app.geoshift.xposed.Call) {
+        if (!installed) return
         val packet = call.args.firstOrNull() ?: return
         val c = active()
         if (c == null) {
@@ -234,13 +240,15 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
         }
         n += CallbackOwners.watch(hooks, Reflect.classOrNull("com.android.server.TelephonyRegistry", loader))
         Log.i("callback owner hooks: $n")
+        Diag.report("callback_owners", n > 0, if (n > 0) "installed" else "error",
+            if (n > 0) "已追踪 $n 个回调注册入口（「仅选中应用」模式按此判断归属）" else "未找到回调注册入口，「仅选中应用」模式无法判断回调归属")
     }
 
     /** Called by the command hook, which sees the LocationManagerService instance. */
     fun attachService(instance: Any) { service = WeakReference(instance) }
 
     private fun kick() {
-        if (active() == null) return
+        if (!installed || active() == null) return
         val since = SystemClock.elapsedRealtime() - lastPumpAt
         schedule(if (since >= 200) 30 else 200 - since)
     }
@@ -248,6 +256,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
     // ---- Pump ---------------------------------------------------------------------------------
 
     fun schedule(delay: Long) {
+        if (!installed) return
         pump.removeCallbacks(tick)
         pump.postDelayed(tick, delay)
     }

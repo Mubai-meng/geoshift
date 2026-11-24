@@ -183,6 +183,8 @@ class MotionModule : XposedModule() {
         }
     }
 
+    private val queryingMiuiSteps = ThreadLocal<Boolean>()
+
     /**
      * On Xiaomi MIUI / HyperOS, WeChat Sports and Mi Fitness read today's step segments from
      * content://com.miui.providers.steps instead of registering a SensorManager listener.
@@ -194,9 +196,13 @@ class MotionModule : XposedModule() {
                 if (m.name != "query" || Modifier.isAbstract(m.modifiers)) continue
                 if (m.parameterTypes.firstOrNull() != Uri::class.java) continue
                 hook(m).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept { chain ->
-                    val res = chain.proceed()
-                    val uri = chain.args.firstOrNull() as? Uri ?: return@intercept res
-                    if (uri.authority != MIUI_STEPS_AUTHORITY) return@intercept res
+                    val uri = chain.args.firstOrNull() as? Uri
+                    if (uri?.authority != MIUI_STEPS_AUTHORITY) return@intercept chain.proceed()
+                    // Short query() overloads forward to the long one on the same thread; only the
+                    // outermost call adds synthetic steps, otherwise they are counted 2–3 times.
+                    if (queryingMiuiSteps.get() == true) return@intercept chain.proceed()
+                    queryingMiuiSteps.set(true)
+                    val res = try { chain.proceed() } finally { queryingMiuiSteps.remove() }
                     val cursor = res as? Cursor ?: return@intercept res
                     val synth = accumulator.totalSyntheticSteps
                     log(Log.INFO, TAG, "miui steps query in $processName: uri=$uri rows=${cursor.count} +synth=$synth")
