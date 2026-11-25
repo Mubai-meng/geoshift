@@ -75,4 +75,19 @@ class FixTest {
         assertTrue(c.cellsOn && c.wifiOn && c.environmentHidden)
         assertTrue(!SimConfig.OFF.locationOn && !SimConfig.OFF.cellsOn)
     }
+
+    @Test fun networkHasIndependentDriftAndBearingAccuracyVaries() {
+        val clock = TestClock(elapsed = 200_000L)
+        val gps = FixBuilder.build(config, "gps", 0, clock, null)
+        val net = FixBuilder.build(config, "network", 0, clock, null)
+        val sep = Geo.distance(gps.point, net.point)
+        assertTrue("network fix should stay reasonably near gps (< 20m), got $sep", sep < 20.0)
+
+        val moving = config.copy(speed = 5.0, bearing = 90.0)
+        val b1 = FixBuilder.build(moving, "gps", 0, clock, null).bearingAccuracy!!
+        clock.advance(12_000)
+        val b2 = FixBuilder.build(moving, "gps", 0, clock, null).bearingAccuracy!!
+        assertTrue(b1 in 4f..20f && b2 in 4f..20f)
+        assertTrue("bearingAccuracy should vary smoothly over time", b1 != b2)
+    }
 }

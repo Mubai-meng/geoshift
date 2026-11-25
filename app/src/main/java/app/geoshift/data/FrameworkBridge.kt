@@ -4,7 +4,9 @@ import android.content.Context
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings as AndroidSettings
 import app.geoshift.core.LatLon
+import app.geoshift.core.RoutePlan
 import app.geoshift.core.SimConfig
 import app.geoshift.xposed.Bridge
 import io.github.libxposed.service.XposedService
@@ -41,9 +43,11 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
     @Volatile var hookConfig: SimConfig? = null
         private set
 
-    private var uploadedRoutes = HashSet<String>()
+    /** routeId -> uploaded content hash so edited routes re-upload even when routeId is preserved. */
+    private var uploadedRoutes = HashMap<String, String>()
     private var lastStable: SimConfig? = null
     private var lastWriteAt = 0L
+    @Volatile private var cachedBootCount: Int? = null
     /** Called when the service (re)binds so the current config is written to it. */
     var onBind: (() -> Unit)? = null
 
@@ -51,9 +55,14 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
 
     override fun onServiceBind(service: XposedService) {
         _service.value = service
-        synchronized(this) { uploadedRoutes = HashSet(); lastStable = null }
+        synchronized(this) { uploadedRoutes = HashMap(); lastStable = null }
         _framework.value = describe(service)
         onBind?.invoke()
+    }
+
+    @Synchronized fun invalidateRoute(id: String) {
+        uploadedRoutes.remove(id)
+        lastStable = null
     }
 
     override fun onServiceDied(service: XposedService) {
@@ -74,6 +83,14 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
 
     fun bootAt(): Long = SimConfig.bootMoment(System.currentTimeMillis(), SystemClock.elapsedRealtime())
 
+    /** Monotonic Android boot counter (immune to NTP / manual clock adjustments), or -1 if unavailable. */
+    fun bootCount(): Int {
+        cachedBootCount?.let { return it }
+        val count = runCatching { AndroidSettings.Global.getInt(context.contentResolver, AndroidSettings.Global.BOOT_COUNT, -1) }.getOrDefault(-1)
+        if (count > 0) cachedBootCount = count
+        return count
+    }
+
     /**
      * Writes the config for the hooks. While a route plays or the joystick moves, the position changes
      * all the time: route steps the hooks compute themselves, joystick steps go out as MOVE commands,
@@ -81,23 +98,27 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
      */
     @Synchronized fun push(config: SimConfig, routePoints: (String) -> List<LatLon>?, joystick: Boolean) {
         val service = _service.value ?: return
-        val stable = config.copy(writtenAt = 0).let {
+        // Zero out bootAt & writtenAt for change-deduplication: wall-clock jitter of 1–2 ms would
+        // otherwise defeat deduplication and spam RemotePreferences/SET on every tick.
+        val stable = config.copy(bootAt = 0, writtenAt = 0).let {
             if (it.route != null || joystick) it.copy(position = LatLon(0.0, 0.0), speed = 0.0, bearing = 0.0) else it
         }
         val now = SystemClock.elapsedRealtime()
         if (joystick && config.active) move(config.position, config.speed, config.bearing)
         if (stable == lastStable && (!joystick || now - lastWriteAt < 3000)) return
         try {
-            config.route?.routeId?.let { id ->
-                if (id !in uploadedRoutes) {
-                    val points = routePoints(id) ?: fail("路线不存在")
+            config.route?.let { anchor ->
+                val id = anchor.routeId
+                val points = routePoints(id) ?: fail("路线不存在")
+                val hash = anchor.contentHash.ifEmpty { RoutePlan.idOf(points) }
+                if (uploadedRoutes[id] != hash) {
                     service.openRemoteFile(Bridge.routeFile(id)).use { pfd ->
                         FileOutputStream(pfd.fileDescriptor).use { out ->
                             out.channel.truncate(0)
                             out.write(SimConfig.JSON.encodeToString(Bridge.ROUTE_SERIALIZER, points).toByteArray())
                         }
                     }
-                    uploadedRoutes.add(id)
+                    uploadedRoutes[id] = hash
                 }
             }
             val text = config.copy(writtenAt = now).encode()

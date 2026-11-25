@@ -48,6 +48,7 @@ object Diagnostics {
         if (report == null) {
             return when {
                 key.startsWith("missing") -> DiagnosticStatus("无", DiagnosticTone.MUTED)
+                key == "motion" -> DiagnosticStatus("未联动", DiagnosticTone.MUTED)
                 key in RUNTIME_ONLY_KEYS && !simActive -> DiagnosticStatus("未启动", DiagnosticTone.MUTED)
                 else -> DiagnosticStatus("暂无报告", DiagnosticTone.MUTED)
             }

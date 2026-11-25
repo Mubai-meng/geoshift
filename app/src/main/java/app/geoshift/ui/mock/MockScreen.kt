@@ -20,10 +20,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.CellTower
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MonitorHeart
@@ -42,6 +45,7 @@ import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Numbers
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -63,7 +67,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -253,8 +259,19 @@ fun MockScreen(
                     }
                 }
             }
-            Diagnostics(s, diagnostics, onToggle = { diagnostics = !diagnostics }, onOpenSetup = onOpenSetup,
-                onCheckIp = { vm.run<String>(onDone = vm::toast) { checkExitIp() } })
+            val clipboard = LocalClipboardManager.current
+            Diagnostics(
+                s,
+                diagnostics,
+                onToggle = { diagnostics = !diagnostics },
+                onOpenSetup = onOpenSetup,
+                onCheckIp = { vm.run<String>(onDone = vm::toast) { checkExitIp() } },
+                onCopyDiagnostics = {
+                    val report = vm.engine.buildDiagnosticReport()
+                    clipboard.setText(AnnotatedString(report))
+                    vm.toast("完整诊断报告已复制到剪贴板")
+                },
+            )
         }
     }
 
@@ -488,36 +505,49 @@ private val DIAGNOSTICS = listOf(
     "config_system" to "配置同步（系统框架）", "config_phone" to "配置同步（电话服务）", "config_bluetooth" to "配置同步（蓝牙）",
     "location_system" to "系统定位入口", "location_pump" to "持续位置推送",
     "location_delivery" to "定位交付改写", "callbacks" to "应用回调与卫星/基站", "callback_owners" to "回调归属追踪", "wifi" to "Wi-Fi 伪装",
-    "phone" to "电话服务基站", "bluetooth" to "蓝牙扫描", "missing" to "缺失入口（系统框架）", "missing_phone" to "缺失入口（电话服务）",
+    "phone" to "电话服务基站", "bluetooth" to "蓝牙扫描", "motion" to "步频联动（GeoshiftMotion）",
+    "missing" to "缺失入口（系统框架）", "missing_phone" to "缺失入口（电话服务）",
 )
 
 /** One status line per system entry; folded to a summary by default. */
 @Composable
-private fun Diagnostics(s: AppState, expanded: Boolean, onToggle: () -> Unit, onOpenSetup: () -> Unit, onCheckIp: () -> Unit) {
-    val nowMs = System.currentTimeMillis()
-    val rows = DIAGNOSTICS.map { (key, title) ->
-        val report = s.reports[key]
-        val classified = app.geoshift.data.Diagnostics.classify(
-            key = key,
-            report = report,
-            simActive = s.runtime.enabled,
-            hideEnvironment = s.settings.hideEnvironment,
-            wifiEnabled = s.runtime.wifiEnabled,
-            sessionStartedAt = s.sessionStartedAt,
-            nowMs = nowMs,
-        )
-        val details = if (report == null) when (key) {
-            "wifi" -> "开始模拟后，等待应用读取 Wi-Fi 时报告。"
-            "phone" -> "需勾选「电话服务」并重启；应用查询基站时报告。"
-            "missing", "missing_phone" -> "所有按名称查找的系统入口都已找到。"
-            "config_system", "config_phone", "config_bluetooth" -> "该进程尚未收到 App 写入的配置。"
-            "location_delivery" -> if (s.runtime.enabled) "等待应用接收定位后显示改写次数。" else "未启动模拟；开始模拟且有应用接收定位后显示改写次数。"
-            "bluetooth" -> "需勾选「蓝牙」并重启；应用扫描蓝牙时报告。"
-            "location_pump" -> if (s.runtime.enabled) "等待定位泵上报提供器推送计数。" else "未启动模拟；开始模拟后显示提供器及推送计数。"
-            else -> "尚无系统报告；入口安装与目标应用实际接收需分别验证。"
-        } else listOf(report.detail, report.process, formatTime(report.time, "HH:mm:ss"))
-            .filter { it.isNotEmpty() }.joinToString(" · ")
-        DiagnosticRowData(title, classified, details, report?.stack.orEmpty())
+private fun Diagnostics(
+    s: AppState,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenSetup: () -> Unit,
+    onCheckIp: () -> Unit,
+    onCopyDiagnostics: () -> Unit,
+) {
+    var inspected by remember { mutableStateOf<DiagnosticRowData?>(null) }
+    // Recomputed only when diagnostic reports or simulation state change, not on every route coordinate tick.
+    val rows = remember(s.reports, s.runtime.enabled, s.settings.hideEnvironment, s.runtime.wifiEnabled, s.sessionStartedAt) {
+        val nowMs = System.currentTimeMillis()
+        DIAGNOSTICS.map { (key, title) ->
+            val report = s.reports[key]
+            val classified = app.geoshift.data.Diagnostics.classify(
+                key = key,
+                report = report,
+                simActive = s.runtime.enabled,
+                hideEnvironment = s.settings.hideEnvironment,
+                wifiEnabled = s.runtime.wifiEnabled,
+                sessionStartedAt = s.sessionStartedAt,
+                nowMs = nowMs,
+            )
+            val details = if (report == null) when (key) {
+                "wifi" -> "开始模拟后，等待应用读取 Wi-Fi 时报告。"
+                "phone" -> "需勾选「电话服务」并重启；应用查询基站时报告。"
+                "motion" -> "可选配套模块；安装并在目标应用启用 GeoshiftMotion 后自动联动。"
+                "missing", "missing_phone" -> "所有按名称查找的系统入口都已找到。"
+                "config_system", "config_phone", "config_bluetooth" -> "该进程尚未收到 App 写入的配置。"
+                "location_delivery" -> if (s.runtime.enabled) "等待应用接收定位后显示改写次数。" else "未启动模拟；开始模拟且有应用接收定位后显示改写次数。"
+                "bluetooth" -> "需勾选「蓝牙」并重启；应用扫描蓝牙时报告。"
+                "location_pump" -> if (s.runtime.enabled) "等待定位泵上报提供器推送计数。" else "未启动模拟；开始模拟后显示提供器及推送计数。"
+                else -> "尚无系统报告；入口安装与目标应用实际接收需分别验证。"
+            } else listOf(report.detail, report.process, formatTime(report.time, "HH:mm:ss"))
+                .filter { it.isNotEmpty() }.joinToString(" · ")
+            DiagnosticRowData(title, classified, details, report?.stack.orEmpty())
+        }
     }
     val errors = rows.count { it.status.isError }
     val working = rows.count { it.status.isHealthy }
@@ -530,7 +560,9 @@ private fun Diagnostics(s: AppState, expanded: Boolean, onToggle: () -> Unit, on
                 rows.forEach { row ->
                     RowDivider()
                     Row(
-                        Modifier.fillMaxWidth().padding(start = 54.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                        Modifier.fillMaxWidth()
+                            .let { if (row.stack.isNotEmpty() || row.details.length > 60) it.clickable { inspected = row } else it }
+                            .padding(start = 54.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -571,12 +603,45 @@ private fun Diagnostics(s: AppState, expanded: Boolean, onToggle: () -> Unit, on
                     }
                 }
                 RowDivider()
+                SettingRow("复制完整诊断报告", "包含设备型号、系统版本、各项状态与完整堆栈（便于反馈适配）",
+                    icon = Icons.Rounded.ContentCopy, value = "复制", onClick = onCopyDiagnostics)
+                RowDivider()
                 SettingRow("出口 IP 校验", "手动检查公网 IP 定位是否与模拟点一致（IP 无法在模块内伪装，差异大时需代理/VPN）",
                     value = "检查", onClick = onCheckIp)
                 RowDivider()
                 SettingRow("检查权限与模块", "在 Xposed 框架中启用 Geoshift 后重启手机", onClick = onOpenSetup)
             }
         }
+    }
+    inspected?.let { row ->
+        AlertDialog(
+            onDismissRequest = { inspected = null },
+            title = { Text(row.title) },
+            text = {
+                SelectionContainer {
+                    Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                        Text(
+                            row.details,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                        )
+                        if (row.stack.isNotEmpty()) {
+                            Spacer(Modifier.size(10.dp))
+                            Text(
+                                row.stack,
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = { onCopyDiagnostics(); inspected = null }) { Text("复制全部报告") }
+                    TextButton(onClick = { inspected = null }) { Text("关闭") }
+                }
+            },
+        )
     }
 }
 

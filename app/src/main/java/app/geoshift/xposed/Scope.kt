@@ -42,12 +42,15 @@ object AppScope {
         val cur = current(c)
         cur.uids[uid]?.let { return it }
         val ctx = Contexts.get() ?: return false // Unknown yet: do not cache.
+        val token = Binder.clearCallingIdentity()
         val result = try {
             val pm = ctx.packageManager
             val names = pm.getPackagesForUid(uid) ?: pm.getPackagesForUid(uid % 100000)
             names?.any { it in cur.set } == true
         } catch (_: Throwable) {
             false
+        } finally {
+            Binder.restoreCallingIdentity(token)
         }
         cur.uids[uid] = result
         return result

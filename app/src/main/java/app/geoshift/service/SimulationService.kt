@@ -33,7 +33,7 @@ class SimulationService : Service() {
     private lateinit var engine: Geoshift
     private var manager: LocationManager? = null
     @Volatile private var providers = false
-    private var shownText: String? = null
+    private var shownNotifKey: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -43,22 +43,26 @@ class SimulationService : Service() {
         manager = getSystemService(LOCATION_SERVICE) as LocationManager
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .createNotificationChannel(NotificationChannel(CHANNEL, "位置模拟", NotificationManager.IMPORTANCE_LOW))
-        startForeground(NOTIFICATION_ID, notification("定位服务准备中"))
+        startForeground(NOTIFICATION_ID, notification("定位服务准备中", routeAction = null))
         running = this
     }
 
-    private fun notification(text: String): Notification {
+    private fun notification(text: String, routeAction: String?): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, SimulationService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(app.geoshift.R.drawable.ic_stat_geoshift)
             .setContentTitle("Geoshift")
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
-            .addAction(Notification.Action.Builder(null, "停止", stop).build())
-            .build()
+        if (routeAction != null) {
+            val toggle = PendingIntent.getService(this, 3, Intent(this, SimulationService::class.java).setAction(ACTION_TOGGLE_PAUSE),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(Notification.Action.Builder(null, routeAction, toggle).build())
+        }
+        return builder.addAction(Notification.Action.Builder(null, "停止", stop).build()).build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, id: Int): Int {
@@ -66,8 +70,18 @@ class SimulationService : Service() {
             clock.post { engine.stop() }
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_TOGGLE_PAUSE) {
+            clock.post {
+                val r = engine.store.runtime.value
+                if (r.enabled && r.routeMode) runCatching { engine.pauseRoute(!r.paused) }
+            }
+            return START_NOT_STICKY
+        }
         clock.post {
             try {
+                // Ensure Store has finished loading before validating capabilities on a cold start.
+                val deadline = SystemClock.elapsedRealtime() + 3000L
+                while (!engine.store.ready.value && SystemClock.elapsedRealtime() < deadline) Thread.sleep(25)
                 engine.ensureReady()
                 if (engine.store.settings.value.backend == Backend.MOCK && !providers) installProviders()
                 emitNow()
@@ -134,9 +148,17 @@ class SimulationService : Service() {
                 name.isNotEmpty() -> "正在模拟：$name"
                 else -> "位置模拟运行中，可随时停止"
             }
-            if (shownText != text) {
-                shownText = text
-                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, notification(text))
+            val routeAction = if (now.routeMode) {
+                when {
+                    now.routeFinished -> "重播"
+                    now.paused -> "继续"
+                    else -> "暂停"
+                }
+            } else null
+            val notifKey = "$text|${routeAction.orEmpty()}"
+            if (shownNotifKey != notifKey) {
+                shownNotifKey = notifKey
+                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, notification(text, routeAction))
             }
             if (providers) {
                 emit()
@@ -176,6 +198,7 @@ class SimulationService : Service() {
         private const val NOTIFICATION_ID = 101
         private const val CHANNEL = "geoshift_location"
         private const val ACTION_STOP = "STOP"
+        private const val ACTION_TOGGLE_PAUSE = "TOGGLE_PAUSE"
         private val PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
         @Volatile private var running: SimulationService? = null
 

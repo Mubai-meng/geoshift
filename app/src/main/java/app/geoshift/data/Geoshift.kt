@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.security.SecureRandom
 import java.util.Locale
@@ -104,13 +105,21 @@ class Geoshift private constructor(context: Context) {
      * starts as "not simulating", so without this, merely reopening the app would switch a running
      * Xposed simulation off, and a dead mock simulation would leave GPS frozen until a restart.
      */
-    private fun resumeAfterRestart() {
+    private suspend fun resumeAfterRestart() {
+        // Wait for Store to finish loading settings & routes from disk before checking privacy/routes,
+        // otherwise a fast cold start would see defaults and push active=false to stop a live simulation.
+        store.ready.first { it }
         val s = store.settings.value
         if (!s.privacyAccepted || store.runtime.value.enabled) return
         if (!s.xposed) { SimulationService.removeLeftoverProviders(app); return }
         // system_server may be slow to answer right after this process starts; a missed answer here
         // would make the first push below switch the running simulation off.
-        if (!(1..5).any { attempt -> bridge.ping() || run { Thread.sleep(400L * attempt); false } }) return
+        var answered = false
+        for (attempt in 1..5) {
+            if (bridge.ping()) { answered = true; break }
+            delay(400L * attempt)
+        }
+        if (!answered) return
         val c = bridge.hookConfig ?: return
         // What system_server reports is what it acts on now: a config from an earlier boot was already
         // dropped when it loaded. Comparing boot moments again here broke after hours of simulating,
@@ -120,11 +129,13 @@ class Geoshift private constructor(context: Context) {
         val route = c.route
         val saved = route?.let { a -> store.routes.items.value.firstOrNull { it.id == a.routeId } }
         if (route != null && saved == null) return
+        val restoredWifiScan = c.wifiScan.ifEmpty { listOfNotNull(c.wifi) }
         store.updateRuntime { r ->
             r.copy(enabled = true, paused = c.paused, mode = if (route != null) SimMode.ROUTE else SimMode.POINT,
                 position = c.position, bearing = c.bearing, anchor = route, noiseSeed = c.noiseSeed,
                 routeId = saved?.id ?: r.routeId, routeName = saved?.name ?: r.routeName, repeat = route?.repeat ?: r.repeat,
-                wifi = c.wifi ?: r.wifi, wifiEnabled = c.wifi != null,
+                wifi = c.wifi ?: restoredWifiScan.firstOrNull() ?: r.wifi, wifiScan = restoredWifiScan.ifEmpty { r.wifiScan },
+                wifiEnabled = c.wifi != null || restoredWifiScan.isNotEmpty(),
                 cells = c.cells.ifEmpty { r.cells }, cellEnabled = c.cells.isNotEmpty())
         }
         store.log("应用重新启动，已接续仍在运行的模拟")
@@ -136,18 +147,19 @@ class Geoshift private constructor(context: Context) {
 
     /** What the hooks get: nothing unless the Xposed backend is chosen. */
     fun simConfig(s: Settings, r: Runtime): SimConfig =
-        if (!s.xposed || !s.privacyAccepted) SimConfig(bootAt = bridge.bootAt()) else localConfig(s, r)
+        if (!s.xposed || !s.privacyAccepted) SimConfig(bootAt = bridge.bootAt(), bootCount = bridge.bootCount()) else localConfig(s, r)
 
     /** The simulation as a config, whichever backend plays it. */
     fun localConfig(s: Settings, r: Runtime): SimConfig {
         val route = r.anchor.takeIf { r.enabled && r.routeMode }
         val footMotion = s.speed <= 5.5 && (s.customSpeed || s.speedMode == SpeedMode.WALK || s.speedMode == SpeedMode.RUN)
         return SimConfig(
-            bootAt = bridge.bootAt(), active = r.enabled, paused = r.paused, position = r.position,
+            bootAt = bridge.bootAt(), bootCount = bridge.bootCount(), active = r.enabled, paused = r.paused, position = r.position,
             speed = if (route == null) r.speed else 0.0, bearing = r.bearing, route = route, footMotion = footMotion,
             noiseSeed = r.noiseSeed, accuracy = s.accuracy, altitude = s.altitude, jitter = s.jitter, interval = s.interval,
             hideEnvironment = s.hideEnvironment, gnss = s.gnss, satellites = s.satellites,
-            wifi = r.wifi.takeIf { r.wifiEnabled }, cells = if (r.cellEnabled) r.cells else emptyList(),
+            wifi = r.wifi.takeIf { r.wifiEnabled }, wifiScan = if (r.wifiEnabled) r.wifiScan else emptyList(),
+            cells = if (r.cellEnabled) r.cells else emptyList(),
             selectedOnly = s.onlySelected, packages = s.packages,
         )
     }
@@ -312,8 +324,10 @@ class Geoshift private constructor(context: Context) {
         val s = store.settings.value
         val now = SystemClock.elapsedRealtime()
         store.updateRuntime { r ->
-            val anchor = if (r.routeMode) RouteAnchor(r.routeId, 0.0, now, s.speed, r.repeat, trafficSeed(s)) else null
-            val first = if (r.routeMode) plan(r.routeId)?.points?.firstOrNull() ?: r.position else r.position
+            val routePlan = if (r.routeMode) plan(r.routeId) else null
+            val hash = routePlan?.let { RoutePlan.idOf(it.points) }.orEmpty()
+            val anchor = if (r.routeMode) RouteAnchor(r.routeId, 0.0, now, s.speed, r.repeat, trafficSeed(s), hash) else null
+            val first = routePlan?.points?.firstOrNull() ?: r.position
             r.copy(enabled = true, paused = false, error = "", anchor = anchor, position = first, positionSet = true, progress = 0.0,
                 routeIndex = 0, noiseSeed = SecureRandom().nextLong())
         }
@@ -418,7 +432,7 @@ class Geoshift private constructor(context: Context) {
             )
             else r.copy(position = Geo.move(r.position, metres, heading), bearing = heading, speed = speed)
         }
-        if (running) SimulationService.nudge()
+        if (running && !store.settings.value.xposed) SimulationService.nudge()
     }
 
     fun clearRoute() {
@@ -480,6 +494,7 @@ class Geoshift private constructor(context: Context) {
         Validate.route(kept)
         store.routes.replaceInPlace(existing.copy(name = validName, points = kept, waypoints = if (profile.road) waypoints else emptyList(), profile = profile))
         synchronized(plans) { plans.remove(id) }
+        bridge.invalidateRoute(id)
         val r = store.runtime.value
         if (r.routeId == id) {
             if (r.enabled && r.routeMode) stop()
@@ -528,7 +543,7 @@ class Geoshift private constructor(context: Context) {
     fun applyWifiPreset(id: String) {
         val p = store.wifiPresets.find(id)
         requireXposed("Wi-Fi 模拟")
-        store.updateRuntime { it.copy(wifi = p.spec, wifiPresetId = id, wifiEnabled = true) }
+        store.updateRuntime { it.copy(wifi = p.spec, wifiScan = listOf(p.spec), wifiPresetId = id, wifiEnabled = true) }
     }
 
     fun setWifiEnabled(enabled: Boolean) {
@@ -594,20 +609,25 @@ class Geoshift private constructor(context: Context) {
         return "环境已记录：真实位置 · 基站 ${cells.size} 个 · Wi-Fi ${wifi.size} 个，可在「收藏 · 环境」查看"
     }
 
-    /** Loads the location, supported cells (registered first) and the first valid Wi-Fi of a record. */
+    /** Loads the location, supported cells (registered first) and nearby valid Wi-Fi APs of a record. */
     fun applyEnvironment(id: String): String {
         requireXposed("位置环境载入")
         if (running) fail("请先停止当前模拟。")
         val e = store.environments.find(id)
         val cells = e.cells.mapNotNull { it.toSpec() }.take(Validate.MAX_CELLS)
-        val wifi = e.wifi.firstOrNull { runCatching { Validate.wifi(it.ssid, it.bssid) }.isSuccess }
+        val wifiScan = e.wifi.mapNotNull { w ->
+            if (runCatching { Validate.wifi(w.ssid, w.bssid) }.isSuccess)
+                WifiSpec(w.ssid.trim(), w.bssid.trim().lowercase(Locale.ROOT), w.rssi, w.frequency)
+            else null
+        }.distinctBy { it.bssid }.take(16)
+        val wifi = wifiScan.firstOrNull()
         store.updateRuntime {
             it.copy(position = e.position, positionSet = true, mode = SimMode.POINT, cells = cells, cellEnabled = cells.isNotEmpty(), cellPresetId = "",
-                wifi = wifi?.let { w -> WifiSpec(w.ssid, w.bssid.lowercase(Locale.ROOT), w.rssi, w.frequency) }, wifiEnabled = wifi != null,
+                wifi = wifi, wifiScan = wifiScan, wifiEnabled = wifi != null,
                 wifiPresetId = "", environmentName = e.name)
         }
         store.log("环境配置已载入：${e.name}")
-        return "已载入采集时的位置 · 基站 ${cells.size} 条 · Wi-Fi ${if (wifi != null) "已配置" else "缺失"}"
+        return "已载入采集时的位置 · 基站 ${cells.size} 条 · Wi-Fi ${if (wifiScan.isNotEmpty()) "${wifiScan.size} 个热点" else "缺失"}"
     }
 
     // ---- Settings -----------------------------------------------------------------------------
@@ -801,9 +821,71 @@ class Geoshift private constructor(context: Context) {
             out.toByteArray()
         } ?: fail("无法读取文件。")
         val count = Backup.import(store, String(bytes))
-        // An imported route can replace one with the same id: its cached plan is stale.
-        if (!running) synchronized(plans) { plans.clear() }
+        // An imported route can replace one with the same id: its cached plan and remote file are stale.
+        if (!running) {
+            synchronized(plans) { plans.clear() }
+            store.routes.items.value.forEach { bridge.invalidateRoute(it.id) }
+        }
         return count
+    }
+
+    // ---- GPX Routes ---------------------------------------------------------------------------
+
+    fun importGpx(uri: Uri): Pair<String, Int> {
+        val bytes = app.contentResolver.openInputStream(uri)?.use { input ->
+            val out = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                if (out.size() + n > 8 * 1024 * 1024) fail("GPX 文件不能超过 8 MB。")
+                out.write(buffer, 0, n)
+            }
+            out.toByteArray()
+        } ?: fail("无法读取 GPX 文件。")
+        val parsed = Gpx.parse(String(bytes, Charsets.UTF_8))
+        val name = parsed.name.ifBlank { "GPX 路线（${parsed.points.size} 点）" }
+        saveRoute(name, parsed.points, profile = RoadProfile.STRAIGHT)
+        return name to minOf(parsed.points.size, Validate.MAX_ROUTE_POINTS)
+    }
+
+    fun exportGpx(id: String, uri: Uri) {
+        val route = store.routes.find(id)
+        val xml = Gpx.export(route.name, route.points)
+        app.contentResolver.openOutputStream(uri)?.use { it.write(xml.toByteArray(Charsets.UTF_8)) } ?: fail("无法写入 GPX 文件。")
+    }
+
+    /** Formats a shareable diagnostic snapshot with device info, all hook reports and full stacks. */
+    fun buildDiagnosticReport(): String {
+        val s = store.settings.value
+        val r = store.runtime.value
+        val c = caps.value
+        val reports = bridge.reports.value
+        val sessionAt = bridge.sessionStartedAt.value
+        val now = System.currentTimeMillis()
+        return buildString {
+            appendLine("=== Geoshift 诊断报告 ===")
+            appendLine("App: Geoshift $VERSION (code ${BuildConfig.VERSION_CODE})")
+            appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+            appendLine("Build: ${Build.DISPLAY}")
+            appendLine("Backend: ${s.backend.name} · SimActive=${r.enabled} · Mode=${r.mode.name} · Scope=${if (s.onlySelected) "selected(${s.packages.size})" else "all"}")
+            appendLine("Framework: ${c.framework?.let { "${it.name} ${it.version} (API ${it.api}, remote=${it.remote}, scope=${it.scope})" } ?: "未连接"}")
+            appendLine("HookActive: ${c.hookActive} · SessionStartedAt: $sessionAt")
+            appendLine()
+            if (reports.isEmpty()) {
+                appendLine("(暂无系统侧诊断报告)")
+            } else {
+                for ((key, rep) in reports.entries.sortedBy { it.key }) {
+                    val status = Diagnostics.classify(key, rep, r.enabled, s.hideEnvironment, r.wifiEnabled, sessionAt, now)
+                    appendLine("[$key] ${status.label} (ok=${rep.ok}, stage=${rep.stage}, process=${rep.process}, time=${rep.time})")
+                    appendLine("  detail: ${rep.detail}")
+                    if (rep.stack.isNotEmpty()) {
+                        appendLine("  stack:")
+                        rep.stack.lineSequence().forEach { line -> appendLine("    $line") }
+                    }
+                }
+            }
+        }
     }
 
     companion object {

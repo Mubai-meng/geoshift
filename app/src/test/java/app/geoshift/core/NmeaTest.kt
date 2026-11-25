@@ -57,4 +57,17 @@ class NmeaTest {
         assertEquals(Sky.usedCount(16), sky.count { it.used })
         assertTrue(sky.all { it.elevation in 5.0..89.9 && it.cn0 in 15.0..48.0 })
     }
+
+    @Test fun gnsModeMatchesConstellationsAndGeoidIsRealistic() {
+        val gpsOnlySky = sky.filter { it.constellation == Constellation.GPS }.map { it.copy(used = true) }
+        val gns = Nmea.replace("\$GNGNS,x*00", fix, gpsOnlySky).single()
+        val fields = gns.substringBefore('*').split(',')
+        assertEquals("ANNN", fields[6])
+        assertTrue(valid(gns))
+
+        val gga = Nmea.replace("\$GNGGA,x*00", fix, sky).single()
+        val ggaFields = gga.substringBefore('*').split(',')
+        val geoid = ggaFields[11].toDouble()
+        assertTrue("geoid undulation should be realistic (-40..40m), got $geoid", geoid in -40.0..40.0 && geoid != 0.0)
+    }
 }

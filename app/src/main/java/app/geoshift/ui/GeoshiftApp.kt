@@ -120,7 +120,14 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 private enum class Page { MAIN, WIFI, CELL, SETUP, AMAP_KEY }
 
 @Composable
-fun GeoshiftApp(vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -> Unit, onImport: () -> Unit) {
+fun GeoshiftApp(
+    vm: AppViewModel,
+    onOpen: (SystemTarget) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+    onImportGpx: () -> Unit = {},
+    onExportGpx: (String, String) -> Unit = { _, _ -> },
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     val s = state
     val systemHaptic = LocalHapticFeedback.current
@@ -144,7 +151,7 @@ fun GeoshiftApp(vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -
             }
         }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            if (s == null) Splash() else Root(s, vm, onOpen, onExport, onImport)
+            if (s == null) Splash() else Root(s, vm, onOpen, onExport, onImport, onImportGpx, onExportGpx)
         }
         val frameworkHelp by vm.frameworkHelp.collectAsStateWithLifecycle()
         if (frameworkHelp) {
@@ -177,7 +184,15 @@ private fun Splash() {
 }
 
 @Composable
-private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -> Unit, onImport: () -> Unit) {
+private fun Root(
+    s: AppState,
+    vm: AppViewModel,
+    onOpen: (SystemTarget) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+    onImportGpx: () -> Unit,
+    onExportGpx: (String, String) -> Unit,
+) {
     var onboarding by rememberSaveable { mutableStateOf(!s.settings.privacyAccepted) }
     var page by rememberSaveable { mutableStateOf(Page.MAIN) }
     var tab by rememberSaveable { mutableStateOf(Tab.MAP) }
@@ -257,7 +272,10 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
                                         s, vm, padding, historyTab,
                                         onShowOnMap = { p -> center = CenterRequest(p, 16.0); tab = Tab.MAP },
                                         onEditRoute = { route -> editRouteRequest = route; tab = Tab.MAP },
-                                        onGoMock = { tab = Tab.MOCK }, onExport = onExport,
+                                        onGoMock = { tab = Tab.MOCK },
+                                        onExport = onExport,
+                                        onImportGpx = onImportGpx,
+                                        onExportGpx = onExportGpx,
                                     )
                                     Tab.MOCK -> MockScreen(
                                         s, vm, padding, onOpenSetup = openSetup,

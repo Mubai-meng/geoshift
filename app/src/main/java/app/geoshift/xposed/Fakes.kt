@@ -108,10 +108,22 @@ object Fakes {
             Reflect.set(identity, "mPci", v.pci, "基站")
             Reflect.set(identity, "mNrArfcn", v.channel, "基站")
             Reflect.set(signal, "mSsRsrp", v.dbm, "基站信号")
+            val rsrq = (-10 + ((v.dbm + 100) / 10).coerceIn(-4, 3)).coerceIn(-20, -3)
+            val sinr = (14 + ((v.dbm + 95) / 3).coerceIn(-8, 12)).coerceIn(0, 30)
+            if (Reflect.hasField(signal.javaClass, "mSsRsrq")) runCatching { Reflect.set(signal, "mSsRsrq", rsrq, "基站信号") }
+            if (Reflect.hasField(signal.javaClass, "mSsSinr")) runCatching { Reflect.set(signal, "mSsSinr", sinr, "基站信号") }
         } else if (lte) {
             Reflect.set(identity, "mPci", v.pci, "基站")
             Reflect.set(identity, "mEarfcn", v.channel, "基站")
             Reflect.set(signal, "mRsrp", v.dbm, "基站信号")
+            val rsrq = (-10 + ((v.dbm + 100) / 10).coerceIn(-4, 3)).coerceIn(-20, -3)
+            val rssnr = (12 + ((v.dbm + 95) / 3).coerceIn(-6, 12)).coerceIn(0, 30)
+            val cqi = (10 + ((v.dbm + 95) / 5).coerceIn(-4, 4)).coerceIn(4, 15)
+            val ta = (2 + ((v.cid xor v.pci.toLong()).toInt() and 0x07)).coerceIn(1, 16)
+            if (Reflect.hasField(signal.javaClass, "mRsrq")) runCatching { Reflect.set(signal, "mRsrq", rsrq, "基站信号") }
+            if (Reflect.hasField(signal.javaClass, "mRssnr")) runCatching { Reflect.set(signal, "mRssnr", rssnr, "基站信号") }
+            if (Reflect.hasField(signal.javaClass, "mCqi")) runCatching { Reflect.set(signal, "mCqi", cqi, "基站信号") }
+            if (Reflect.hasField(signal.javaClass, "mTimingAdvance")) runCatching { Reflect.set(signal, "mTimingAdvance", ta, "基站信号") }
         } else {
             Reflect.set(identity, "mArfcn", v.channel, "基站")
             Reflect.set(signal, "mRssi", v.dbm, "基站信号")
@@ -165,21 +177,30 @@ object Fakes {
             ?: runCatching { Reflect.callStatic(type, "createFromAsciiEncoded", name) }.getOrNull()
     }
 
-    /** Scan results an app should see: the simulated access point, or nothing. */
+    /** Scan results an app should see: the simulated access points (multi-AP when available), or nothing. */
     fun scanResults(c: SimConfig): MutableList<ScanResult> {
-        val w = c.wifi ?: return ArrayList()
-        val r = if (Build.VERSION.SDK_INT >= 30) ScanResult() else Reflect.newInstance(ScanResult::class.java) as ScanResult
-        @Suppress("DEPRECATION")
-        run {
-            r.SSID = w.ssid
-            r.BSSID = w.bssid.lowercase(Locale.ROOT)
-            r.capabilities = "[WPA2-PSK-CCMP][RSN-PSK-CCMP][ESS]"
-            r.level = w.safeRssi
-            r.frequency = w.safeFrequency
-            r.timestamp = SystemClock.elapsedRealtime() * 1000
+        val list = c.wifiScan.ifEmpty { listOfNotNull(c.wifi) }
+        if (list.isEmpty()) return ArrayList()
+        // Real Wi-Fi scan timestamps come from the last completed scan (~5 s cache bucket), not exact "now".
+        val nowMs = SystemClock.elapsedRealtime()
+        val scanBucketUs = (nowMs / 5000L) * 5_000_000L
+        val out = ArrayList<ScanResult>(minOf(list.size, 16))
+        for ((idx, w) in list.take(16).withIndex()) {
+            val r = if (Build.VERSION.SDK_INT >= 30) ScanResult() else Reflect.newInstance(ScanResult::class.java) as ScanResult
+            val apOffsetUs = ((w.bssid.hashCode().toLong() and 0x7FFFL) % 450_000L) + idx * 18_000L
+            @Suppress("DEPRECATION")
+            run {
+                r.SSID = w.ssid
+                r.BSSID = w.bssid.lowercase(Locale.ROOT)
+                r.capabilities = "[WPA2-PSK-CCMP][RSN-PSK-CCMP][ESS]"
+                r.level = w.safeRssi
+                r.frequency = w.safeFrequency
+                r.timestamp = (scanBucketUs + apOffsetUs).coerceAtMost(nowMs * 1000L)
+            }
+            wifiSsid(w.ssid)?.let { Reflect.callOrNull(r, "setWifiSsid", it) }
+            out.add(r)
         }
-        wifiSsid(w.ssid)?.let { Reflect.callOrNull(r, "setWifiSsid", it) }
-        return arrayListOf(r)
+        return out
     }
 
     /** Link fields kept in a rebuilt WifiInfo: they keep the connection usable and name no access point. */

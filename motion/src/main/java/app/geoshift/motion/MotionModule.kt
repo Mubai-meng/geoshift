@@ -56,6 +56,7 @@ class MotionModule : XposedModule() {
     private val workerThread by lazy { HandlerThread("geoshift-motion").apply { start() } }
     private val worker by lazy { Handler(workerThread.looper) }
     @Volatile private var tickerRunning = false
+    @Volatile private var idlePollMs = POLL_MS
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         processName = param.processName
@@ -64,6 +65,7 @@ class MotionModule : XposedModule() {
     override fun onPackageReady(param: PackageReadyParam) {
         if (installed) return
         if (param.packageName == "android" || param.packageName == SELF_GEOSHIFT || param.packageName == "app.geoshift.motion") return
+        if (MiuiStepsFilter.isAuxiliaryProcess(processName)) return
         installed = true
         log(Log.INFO, TAG, "loaded in ${param.packageName} ($processName)")
         installSensorHooks(param.classLoader)
@@ -204,10 +206,12 @@ class MotionModule : XposedModule() {
                     queryingMiuiSteps.set(true)
                     val res = try { chain.proceed() } finally { queryingMiuiSteps.remove() }
                     val cursor = res as? Cursor ?: return@intercept res
-                    val synth = accumulator.totalSyntheticSteps
-                    log(Log.INFO, TAG, "miui steps query in $processName: uri=$uri rows=${cursor.count} +synth=$synth")
+                    val synth = accumulator.todaySyntheticSteps
+                    log(Log.INFO, TAG, "miui steps query in $processName: uri=$uri rows=${cursor.count} +todaySynth=$synth")
                     if (synth <= 0L) return@intercept res
-                    runCatching { wrapMiuiStepsCursor(cursor, synth) }.getOrDefault(cursor)
+                    val selection = extractSelection(chain.args)
+                    val selectionArgs = extractSelectionArgs(chain.args)
+                    runCatching { wrapMiuiStepsCursor(cursor, synth, selection, selectionArgs) }.getOrDefault(cursor)
                 }
             }
         } catch (t: Throwable) {
@@ -215,10 +219,57 @@ class MotionModule : XposedModule() {
         }
     }
 
-    private fun wrapMiuiStepsCursor(cursor: Cursor, syntheticSteps: Long): Cursor {
+    private fun extractSelection(args: List<Any?>): String? {
+        val bundle = args.getOrNull(2) as? Bundle
+        if (bundle != null) return bundle.getString(ContentResolver.QUERY_ARG_SQL_SELECTION)
+        return args.getOrNull(2) as? String
+    }
+
+    private fun extractSelectionArgs(args: List<Any?>): Array<String>? {
+        val bundle = args.getOrNull(2) as? Bundle
+        if (bundle != null) return bundle.getStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS)
+        @Suppress("UNCHECKED_CAST")
+        return args.getOrNull(3) as? Array<String>
+    }
+
+    private fun localDayKey(): Long {
+        val cal = java.util.Calendar.getInstance()
+        return cal.get(java.util.Calendar.YEAR) * 1000L + cal.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+
+    private fun todayStartMillis(): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    private fun wrapMiuiStepsCursor(
+        cursor: Cursor,
+        syntheticSteps: Long,
+        selection: String?,
+        selectionArgs: Array<String>?,
+    ): Cursor {
         val stepsCol = cursor.getColumnIndex("_steps")
         if (stepsCol < 0) return cursor
-        if (cursor.count == 0) {
+        val count = cursor.count
+        var lastEndTime: Long? = null
+        if (count > 0) {
+            val endCol = cursor.getColumnIndex("_end_time")
+            if (endCol >= 0) {
+                val savedPos = cursor.position
+                if (cursor.moveToPosition(count - 1)) {
+                    lastEndTime = runCatching { cursor.getLong(endCol) }.getOrNull()
+                }
+                cursor.moveToPosition(savedPos)
+            }
+        }
+        if (!MiuiStepsFilter.shouldApplyToCursor(count, lastEndTime, selection, selectionArgs, todayStartMillis())) {
+            return cursor
+        }
+        if (count == 0) {
             val cols = cursor.columnNames
             if (cols.isNullOrEmpty()) return cursor
             val now = System.currentTimeMillis()
@@ -273,6 +324,7 @@ class MotionModule : XposedModule() {
         synchronized(queues) {
             queues.getOrPut(queue) { TrackedQueue() }.handles[h] = sensor.type
         }
+        idlePollMs = POLL_MS
         log(Log.INFO, TAG, "tracked sensor type=${sensor.type} in $processName")
         ensureTicker()
     }
@@ -296,19 +348,26 @@ class MotionModule : XposedModule() {
     private val tickRunnable = object : Runnable {
         override fun run() {
             val nowMs = SystemClock.elapsedRealtime()
-            if (nowMs - motion.atMs >= POLL_MS) {
+            val hasListeners = synchronized(queues) { queues.isNotEmpty() }
+            val pollInterval = if (motion.active || hasListeners) POLL_MS else idlePollMs
+            if (nowMs - motion.atMs >= pollInterval) {
                 val prev = motion
                 val next = queryGeoshift(nowMs)
                 if (prev.active != next.active || prev.foot != next.foot) {
-                    log(Log.INFO, TAG, "motion state in $processName: active=${next.active} foot=${next.foot} speed=${"%.2f".format(next.speed)} m/s totalSteps=${accumulator.totalSyntheticSteps}")
+                    log(Log.INFO, TAG, "motion state in $processName: active=${next.active} foot=${next.foot} speed=${"%.2f".format(next.speed)} m/s todaySteps=${accumulator.todaySyntheticSteps}")
                 }
                 motion = next
+                idlePollMs = if (next.active || hasListeners) POLL_MS else (idlePollMs + 1500L).coerceAtMost(MAX_IDLE_POLL_MS)
             }
             val st = motion
             val effSpeed = st.effectiveSpeed
-            val steps = accumulator.advance(nowMs, effSpeed, st.seed)
+            val steps = accumulator.advance(nowMs, effSpeed, st.seed, localDayKey())
             if (steps > 0) emitSteps(steps)
-            val delayMs = if (effSpeed > 0.0 && CadenceModel.cadenceHz(effSpeed, st.seed, nowMs / 1000.0) > 0.0) STEP_TICK_MS else IDLE_TICK_MS
+            val delayMs = when {
+                effSpeed > 0.0 && CadenceModel.cadenceHz(effSpeed, st.seed, nowMs / 1000.0) > 0.0 -> STEP_TICK_MS
+                st.active || hasListeners -> IDLE_TICK_MS
+                else -> idlePollMs
+            }
             worker.postDelayed(this, delayMs)
         }
     }
@@ -379,6 +438,7 @@ class MotionModule : XposedModule() {
         const val SELF_GEOSHIFT = "app.geoshift"
         const val MIUI_STEPS_AUTHORITY = "com.miui.providers.steps"
         const val POLL_MS = 1500L
+        const val MAX_IDLE_POLL_MS = 5000L
         const val STEP_TICK_MS = 100L
         const val IDLE_TICK_MS = 1500L
     }

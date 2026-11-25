@@ -64,11 +64,17 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
             if (now - at < 60_000L) return hit
         }
         val pm = Contexts.get()?.packageManager ?: return false
-        val matched = isSelfUid(
-            uid = uid,
-            packagesForUid = { targetUid -> runCatching { pm.getPackagesForUid(targetUid) }.getOrNull() },
-            primarySelfUid = { runCatching { pm.getApplicationInfo(Bridge.SELF, 0).uid }.getOrNull() },
-        )
+        val token = Binder.clearCallingIdentity()
+        val matched = try {
+            isSelfUid(
+                uid = uid,
+                packagesForUid = { targetUid -> runCatching { pm.getPackagesForUid(targetUid) }.getOrNull() },
+                primarySelfUid = { runCatching { pm.getApplicationInfo(Bridge.SELF, 0).uid }.getOrNull() },
+            )
+        } finally {
+            Binder.restoreCallingIdentity(token)
+        }
+        if (ownUidCache.size > 256) ownUidCache.clear()
         ownUidCache[uid] = matched to now
         return matched
     }
@@ -108,10 +114,13 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
                     val c = Sim.config
                     if (!c.active || !AppScope.covers(c, uid)) return@before
                     val fix = runCatching { Fakes.fix(c, "gps") }.getOrNull() ?: return@before
+                    val speed = (fix.speed ?: 0f).toDouble()
                     extras.putBoolean("active", true)
                     extras.putBoolean("foot", c.footMotion)
-                    extras.putDouble("speed", (fix.speed ?: 0f).toDouble())
+                    extras.putDouble("speed", speed)
                     extras.putLong("seed", c.noiseSeed)
+                    Diag.report("motion", true, "read",
+                        "GeoshiftMotion 已联动（uid=$uid · 速度 ${"%.1f".format(speed)} m/s · ${if (c.footMotion) "步行/跑步" else "非步行"}）")
                     call.result = if (call.returnType == java.lang.Boolean.TYPE) true else null
                     return@before
                 }

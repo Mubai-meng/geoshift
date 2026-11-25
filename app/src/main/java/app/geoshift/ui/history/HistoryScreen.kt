@@ -28,7 +28,9 @@ import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Map
@@ -115,6 +117,8 @@ fun HistoryScreen(
     onEditRoute: (SavedRoute) -> Unit,
     onGoMock: () -> Unit,
     onExport: () -> Unit,
+    onImportGpx: () -> Unit = {},
+    onExportGpx: (String, String) -> Unit = { _, _ -> },
 ) {
     var tab by rememberSaveable(initialTab) { mutableIntStateOf(initialTab) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -216,6 +220,9 @@ fun HistoryScreen(
                     IconButton(onClick = { selectionMode = true }) {
                         Icon(Icons.Rounded.Checklist, "批量管理")
                     }
+                }
+                if (tab == 1) {
+                    IconButton(onClick = onImportGpx) { Icon(Icons.Rounded.FileOpen, "导入 GPX 路线") }
                 }
                 IconButton(onClick = onExport) { Icon(Icons.Rounded.Upload, "导出备份") }
                 Box {
@@ -370,6 +377,10 @@ fun HistoryScreen(
                         SheetAction(Icons.Rounded.Edit, "编辑路线（增删节点）") {
                             close()
                             s.routes.firstOrNull { it.id == row.id }?.let(onEditRoute)
+                        }
+                        SheetAction(Icons.Rounded.Download, "导出为 GPX 轨迹文件") {
+                            close()
+                            onExportGpx(row.id, row.name)
                         }
                     }
                     else -> {

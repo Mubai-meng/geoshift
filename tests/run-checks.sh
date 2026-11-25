@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export ANDROID_HOME="${ANDROID_HOME:-$(cd .. && pwd)/android/sdk}"
 ./gradlew --no-daemon -q testDebugUnitTest
-for f in app/build/test-results/testDebugUnitTest/*.xml; do
+for f in app/build/test-results/testDebugUnitTest/*.xml motion/build/test-results/testDebugUnitTest/*.xml; do
+  [ -f "$f" ] || continue
   grep -o 'testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' "$f"
 done

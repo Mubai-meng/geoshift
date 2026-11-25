@@ -117,6 +117,12 @@ fun MapScreen(
     var showNodes by remember { mutableStateOf(false) }
     var tappedNodeAction by remember { mutableStateOf<Pair<Int, LatLon>?>(null) }
     val draft = remember { mutableStateListOf<LatLon>() }
+    val undoStack = remember { mutableStateListOf<List<LatLon>>() }
+
+    fun pushUndo() {
+        undoStack.add(draft.toList())
+        if (undoStack.size > 30) undoStack.removeAt(0)
+    }
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
@@ -213,6 +219,7 @@ fun MapScreen(
         showNodes = false
         tappedNodeAction = null
         draft.clear()
+        undoStack.clear()
     }
 
     LaunchedEffect(editRouteRequest) {
@@ -224,6 +231,7 @@ fun MapScreen(
         results = emptyList()
         focus.clearFocus()
         draft.clear()
+        undoStack.clear()
         val initialNodes = if (req.profile.road && req.waypoints.isNotEmpty()) req.waypoints else req.points
         draft.addAll(initialNodes)
         editingRouteId = req.id
@@ -280,10 +288,11 @@ fun MapScreen(
     val editAnchors = if (road) waypoints else emptyList()
     val editLength = remember(editRoute) { Geo.routeLength(editRoute) }
 
-    // Address of the simulated position for the status card (cancellable, does not touch global busy state).
+    // Address of the simulated position for the status card (cancellable, skipped off-tab or during joystick drag).
     var simAddress by remember { mutableStateOf("") }
-    LaunchedEffect(r.position, r.routeMode, s.settings.privacyAccepted) {
+    LaunchedEffect(r.position, r.routeMode, r.joystick, visible, s.settings.privacyAccepted) {
         if (r.routeMode || !s.settings.privacyAccepted) { simAddress = ""; return@LaunchedEffect }
+        if (!visible || r.joystick) return@LaunchedEffect
         val p = r.position
         if (selected != null && selected == p && address.isNotEmpty()) { simAddress = address; return@LaunchedEffect }
         simAddress = ""
@@ -340,6 +349,7 @@ fun MapScreen(
                 return
             }
         }
+        pushUndo()
         draft.add(p)
     }
 
@@ -430,6 +440,7 @@ fun MapScreen(
                             Row(
                                 Modifier.fillMaxWidth().clickable {
                                     if (editing) {
+                                        pushUndo()
                                         draft.add(place.position)
                                         query = ""
                                         searchGeneration++
@@ -521,7 +532,7 @@ fun MapScreen(
                 ToolGroup {
                     MapTool(Icons.Rounded.Route, "路线编辑", active = editing) {
                         if (!editing) {
-                            draft.clear(); editingRouteId = null; editingRouteName = ""; showNodes = false
+                            draft.clear(); undoStack.clear(); editingRouteId = null; editingRouteName = ""; showNodes = false
                             selected = null; query = ""; searchGeneration++; searching = false; results = emptyList(); focus.clearFocus()
                             editing = true
                         } else {
@@ -606,17 +617,43 @@ fun MapScreen(
                         else -> "已沿${spaced(router.source)}道路连接"
                     },
                     roadFailed = roadError != null,
+                    canUndo = undoStack.isNotEmpty() || draft.isNotEmpty(),
                     onToggleNodes = { showNodes = !showNodes },
                     onFocusNode = { p -> onCenter(CenterRequest(p, maxOf(camera.zoom, 16.0))) },
+                    onInsertAfterNode = { idx ->
+                        if (idx in 0 until draft.lastIndex) {
+                            val mid = Geo.interpolate(draft[idx], draft[idx + 1], 0.5)
+                            pushUndo()
+                            draft.add(idx + 1, mid)
+                            onCenter(CenterRequest(mid, maxOf(camera.zoom, 16.0)))
+                            vm.toast("已在 #${idx + 1} 后插入中点")
+                        }
+                    },
                     onRemoveNode = { idx ->
                         if (idx in draft.indices) {
+                            pushUndo()
                             draft.removeAt(idx)
                             if (draft.isEmpty()) showNodes = false
                         }
                     },
                     onProfile = { p -> vm.run { store.updateSettings { it.copy(roadProfile = p) } } },
-                    onUndo = { if (draft.isNotEmpty()) draft.removeAt(draft.lastIndex) },
-                    onClear = { draft.clear(); showNodes = false },
+                    onUndo = {
+                        if (undoStack.isNotEmpty()) {
+                            val prev = undoStack.removeAt(undoStack.lastIndex)
+                            draft.clear()
+                            draft.addAll(prev)
+                            if (draft.isEmpty()) showNodes = false
+                        } else if (draft.isNotEmpty()) {
+                            draft.removeAt(draft.lastIndex)
+                        }
+                    },
+                    onClear = {
+                        if (draft.isNotEmpty()) {
+                            pushUndo()
+                            draft.clear()
+                            showNodes = false
+                        }
+                    },
                     onSave = {
                         when {
                             draft.size < 2 -> vm.toast("请至少选择两个路线点")
@@ -640,6 +677,7 @@ fun MapScreen(
                     onStart = { vm.run("模拟定位已开启", onDone = { _: Unit -> selected = null }) { startPoint(sel) } },
                     onRouteTo = {
                         draft.clear()
+                        undoStack.clear()
                         editingRouteId = null
                         editingRouteName = ""
                         showNodes = false
@@ -697,10 +735,13 @@ fun MapScreen(
         AlertDialog(
             onDismissRequest = { tappedNodeAction = null },
             title = { Text("已点中$label") },
-            text = { Text("要删除这个路线节点，还是在此处附近添加一个新的途经点？") },
+            text = { Text("要删除这个路线节点，还是在其后插入 / 末尾追加新的途经点？") },
             confirmButton = {
                 TextButton(onClick = {
-                    if (idx in draft.indices) draft.removeAt(idx)
+                    if (idx in draft.indices) {
+                        pushUndo()
+                        draft.removeAt(idx)
+                    }
                     tappedNodeAction = null
                 }) { Text("删除此节点", color = Danger) }
             },
@@ -708,9 +749,17 @@ fun MapScreen(
                 Row {
                     TextButton(onClick = { tappedNodeAction = null }) { Text("取消") }
                     TextButton(onClick = {
+                        if (idx in draft.indices) {
+                            pushUndo()
+                            draft.add(idx + 1, tappedPoint)
+                        }
+                        tappedNodeAction = null
+                    }) { Text("在其后插入") }
+                    TextButton(onClick = {
+                        pushUndo()
                         draft.add(tappedPoint)
                         tappedNodeAction = null
-                    }) { Text("添加新点") }
+                    }) { Text("末尾追加") }
                 }
             },
         )

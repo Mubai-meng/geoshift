@@ -15,6 +15,8 @@ data class SimConfig(
      * earlier boot is ignored: after a reboot this moves by at least the whole previous uptime.
      */
     val bootAt: Long = 0,
+    /** Android Settings.Global.BOOT_COUNT when written; exact across NTP / manual clock adjustments. */
+    val bootCount: Int = -1,
     /** elapsedRealtime when written; a joystick step sent after this overrides [position]. */
     val writtenAt: Long = 0,
     /** Location simulation is running (LSPosed backend). */
@@ -39,8 +41,10 @@ data class SimConfig(
     /** Show the simulated sky even when location simulation is off. */
     val gnss: Boolean = false,
     val satellites: Int = 12,
-    /** Simulated Wi-Fi connection / scan; applies whenever set. */
+    /** Simulated Wi-Fi connection / primary AP; applies whenever set. */
     val wifi: WifiSpec? = null,
+    /** Simulated nearby Wi-Fi scan list (e.g. from an environment record); falls back to [wifi] when empty. */
+    val wifiScan: List<WifiSpec> = emptyList(),
     /** Simulated cells (first is the serving cell); applies whenever non-empty. */
     val cells: List<CellSpec> = emptyList(),
     /** Only the apps in [packages] see the simulation; otherwise every app does. */
@@ -51,12 +55,18 @@ data class SimConfig(
     val environmentHidden get() = active && hideEnvironment
     val gnssOn get() = gnss || environmentHidden
     val cellsOn get() = cells.isNotEmpty() || environmentHidden
-    val wifiOn get() = wifi != null || environmentHidden
+    val wifiOn get() = wifi != null || wifiScan.isNotEmpty() || environmentHidden
 
     fun encode(): String = JSON.encodeToString(serializer(), this)
 
-    /** Whether this config was written during the boot that started at [bootAt] (±[BOOT_TOLERANCE_MS]). */
-    fun sameBoot(currentBootAt: Long) = bootAt > 0 && kotlin.math.abs(bootAt - currentBootAt) < BOOT_TOLERANCE_MS
+    /**
+     * Whether this config was written during the current boot. Prefers exact Android BOOT_COUNT
+     * when available on both sides (immune to NTP / clock jumps), falling back to [bootAt] ±[BOOT_TOLERANCE_MS].
+     */
+    fun sameBoot(currentBootAt: Long, currentBootCount: Int = -1): Boolean {
+        if (bootCount > 0 && currentBootCount > 0) return bootCount == currentBootCount
+        return bootAt > 0 && kotlin.math.abs(bootAt - currentBootAt) < BOOT_TOLERANCE_MS
+    }
 
     companion object {
         const val BOOT_TOLERANCE_MS = 60_000L
@@ -86,6 +96,8 @@ data class RouteAnchor(
      * null = off. App and hooks derive the same lights from it.
      */
     val traffic: Long? = null,
+    /** Content fingerprint from [RoutePlan.idOf] so edited routes reload on system_server even with the same [routeId]. */
+    val contentHash: String = "",
 )
 
 @Serializable

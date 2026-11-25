@@ -16,9 +16,31 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class PhoneSide(private val hooks: Hooker, private val loader: ClassLoader) {
     private val classes = Collections.newSetFromMap(ConcurrentHashMap<Class<*>, Boolean>())
+    private val ownUidCache = ConcurrentHashMap<Int, Pair<Boolean, Long>>()
 
     private fun cells(): SimConfig? = Sim.config.takeIf { it.cellsOn }
     private fun report(ok: Boolean, stage: String, detail: String) = Diag.report("phone", ok, stage, detail)
+
+    /** Exempts Geoshift itself so scanning real nearby cells works even while cell simulation is enabled. */
+    private fun isOwnUid(uid: Int): Boolean {
+        if (uid < 10000 || uid % 100000 < 10000) return false
+        val now = SystemClock.elapsedRealtime()
+        ownUidCache[uid]?.let { (hit, at) -> if (now - at < 60_000L) return hit }
+        val pm = Contexts.get()?.packageManager ?: return false
+        val token = Binder.clearCallingIdentity()
+        val matched = try {
+            app.geoshift.xposed.system.SystemSide.isSelfUid(
+                uid = uid,
+                packagesForUid = { targetUid -> runCatching { pm.getPackagesForUid(targetUid) }.getOrNull() },
+                primarySelfUid = { runCatching { pm.getApplicationInfo(Bridge.SELF, 0).uid }.getOrNull() },
+            )
+        } finally {
+            Binder.restoreCallingIdentity(token)
+        }
+        if (ownUidCache.size > 256) ownUidCache.clear()
+        ownUidCache[uid] = matched to now
+        return matched
+    }
 
     fun install() {
         var n = 0
@@ -65,7 +87,10 @@ class PhoneSide(private val hooks: Hooker, private val loader: ClassLoader) {
         if (type == null || !classes.add(type)) return 0
         var n = 0
         for (name in listOf("getAllCellInfo", "getCellLocation", "getNeighboringCellInfo", "getServiceStateForSlot", "getServiceStateForSubscriber"))
-            n += hooks.declared(type, name) { m -> hooks.after(m) { call -> answer(m, call) } }
+            n += hooks.declared(type, name) { m ->
+                hooks.after(m) { call -> answer(m, call) }
+                hooks.deoptimize(m)
+            }
         for (name in listOf("requestCellInfoUpdate", "requestCellInfoUpdateWithWorkSource"))
             n += hooks.declared(type, name) { m -> hooks.before(m, ::refresh) }
         return n
@@ -73,7 +98,7 @@ class PhoneSide(private val hooks: Hooker, private val loader: ClassLoader) {
 
     private fun answer(m: Method, call: Call) {
         val uid = Binder.getCallingUid()
-        if (uid < 10000) return
+        if (uid < 10000 || isOwnUid(uid)) return
         val c = cells() ?: return
         if (!AppScope.covers(c, uid)) return
         try {
@@ -95,7 +120,7 @@ class PhoneSide(private val hooks: Hooker, private val loader: ClassLoader) {
     /** An app asks the modem for fresh cells: answer its callback with the simulated ones, skip the modem. */
     private fun refresh(call: Call) {
         val uid = Binder.getCallingUid()
-        if (uid < 10000) return
+        if (uid < 10000 || isOwnUid(uid)) return
         val c = cells() ?: return
         if (!AppScope.covers(c, uid)) return
         val callback = call.args.firstOrNull { it != null && implements(it.javaClass, "android.telephony.ICellInfoCallback") } ?: return

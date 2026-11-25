@@ -56,6 +56,8 @@ object Sim {
     @Volatile private var effective: SimConfig = SimConfig.OFF
     @Volatile var plan: RoutePlan? = null
         private set
+    @Volatile private var planHash: String = ""
+    @Volatile private var cachedBootCount: Int? = null
     /** Joystick position sent straight to system_server; newer than the stored config while moving. */
     @Volatile private var move: Move? = null
 
@@ -117,12 +119,20 @@ object Sim {
         validate()
     }
 
+    private fun currentBootCount(): Int {
+        cachedBootCount?.let { return it }
+        val cr = Contexts.get()?.contentResolver ?: return -1
+        val count = runCatching { android.provider.Settings.Global.getInt(cr, android.provider.Settings.Global.BOOT_COUNT, -1) }.getOrDefault(-1)
+        if (count > 0) cachedBootCount = count
+        return count
+    }
+
     /** A config from an earlier boot must not resume after a restart. */
     private fun validate() {
         val c = raw
         if (c == SimConfig.OFF) { publish(SimConfig.OFF); return }
         val now = SimConfig.bootMoment(System.currentTimeMillis(), SystemClock.elapsedRealtime())
-        if (!c.sameBoot(now)) {
+        if (!c.sameBoot(now, currentBootCount())) {
             publish(SimConfig.OFF)
             Diag.report(Diag.configKey, true, "stale", "配置来自上次开机，已忽略；打开 App 重新开始模拟")
         } else {
@@ -140,14 +150,17 @@ object Sim {
     }
 
     private fun loadRoute(c: SimConfig) {
-        val id = c.route?.routeId ?: return
-        if (plan?.id == id) return
+        val anchor = c.route ?: return
+        val id = anchor.routeId
+        val hash = anchor.contentHash
+        if (plan?.id == id && planHash == hash) return
         try {
             val text = xposed.openRemoteFile(Bridge.routeFile(id)).use { pfd ->
                 java.io.FileInputStream(pfd.fileDescriptor).bufferedReader().readText()
             }
             val points = SimConfig.JSON.decodeFromString(Bridge.ROUTE_SERIALIZER, text)
             plan = RoutePlan(id, points)
+            planHash = hash
         } catch (e: Throwable) {
             Diag.report(Diag.configKey, false, "error", "路线文件读取失败：${e.javaClass.simpleName}；暂用 App 上报的位置")
         }

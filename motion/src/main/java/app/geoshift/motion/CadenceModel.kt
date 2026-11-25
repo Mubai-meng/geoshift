@@ -64,8 +64,12 @@ object CadenceModel {
  */
 class StepAccumulator {
     private var lastMs = -1L
+    private var currentDayKey = -1L
     @Volatile private var stepPhase = 0.0 // fractional steps since start; integer crossings emit steps
     @Volatile var totalSyntheticSteps: Long = 0L
+        private set
+    /** Synthetic steps accumulated in the current local calendar day (resets at midnight for daily providers). */
+    @Volatile var todaySyntheticSteps: Long = 0L
         private set
 
     /** Current gait phase in radians (0 .. 4π so half-frequency stride sway stays continuous). */
@@ -73,7 +77,13 @@ class StepAccumulator {
 
     /** Advances to [nowMs] at [speedMps] and returns how many new footsteps occurred in this slice. */
     @Synchronized
-    fun advance(nowMs: Long, speedMps: Double, seed: Long): Int {
+    fun advance(nowMs: Long, speedMps: Double, seed: Long, dayKey: Long = 0L): Int {
+        if (dayKey > 0L) {
+            if (currentDayKey > 0L && currentDayKey != dayKey) {
+                todaySyntheticSteps = 0L
+            }
+            currentDayKey = dayKey
+        }
         if (lastMs < 0L) {
             lastMs = nowMs
             return 0
@@ -88,7 +98,58 @@ class StepAccumulator {
         val nextFloor = floor(stepPhase).toLong()
         val delta = (nextFloor - prevFloor).toInt().coerceAtLeast(0)
         totalSyntheticSteps += delta
+        todaySyntheticSteps += delta
         return delta
+    }
+}
+
+/**
+ * Pure-Kotlin helpers for process filtering and MIUI daily StepsProvider query scoping so historical
+ * step queries are never polluted with today's synthetic steps.
+ */
+object MiuiStepsFilter {
+    private val AUXILIARY_SUFFIXES = listOf(
+        ":push", ":pushservice", ":sandboxed_process", ":webview",
+        ":crash", ":daemon", ":tinker", ":hotfix", ":isolated",
+    )
+
+    fun isAuxiliaryProcess(processName: String): Boolean {
+        val lower = processName.lowercase()
+        return AUXILIARY_SUFFIXES.any { lower.contains(it) }
+    }
+
+    /**
+     * Decides whether today's synthetic steps should be applied to a MIUI StepsProvider query result.
+     * - If the cursor has rows and the last row's `_end_time` is before [todayStartMs], it is a
+     *   historical query (yesterday / earlier) -> returns false.
+     * - If the cursor is empty, inspect [selection]/[selectionArgs]: when the query explicitly
+     *   bounds `_begin_time` or `_end_time` strictly below [todayStartMs], returns false.
+     */
+    fun shouldApplyToCursor(
+        rowCount: Int,
+        lastEndTimeMs: Long?,
+        selection: String?,
+        selectionArgs: Array<out String>?,
+        todayStartMs: Long,
+    ): Boolean {
+        if (rowCount > 0 && lastEndTimeMs != null && lastEndTimeMs > 0L) {
+            return lastEndTimeMs >= todayStartMs
+        }
+        if (rowCount == 0 && !selection.isNullOrBlank()) {
+            val sel = selection.lowercase()
+            // Check explicit numeric upper bounds in selectionArgs (e.g. "_end_time < ?" or "_begin_time <= ?").
+            val hasUpperBound = sel.contains("_end_time <") || sel.contains("_end_time<") ||
+                sel.contains("_begin_time <") || sel.contains("_begin_time<")
+            if (hasUpperBound && selectionArgs != null) {
+                val timestamps = selectionArgs.mapNotNull { it.trim().toLongOrNull() }.filter { it > 1_000_000_000_000L }
+                if (timestamps.isNotEmpty() && timestamps.max() <= todayStartMs) return false
+            }
+            // Check inline numeric upper bounds (e.g. "_end_time < 1700000000000").
+            val inlineUpper = Regex("""_(?:begin|end)_time\s*<=?\s*(\d{12,})""").findAll(sel)
+                .mapNotNull { it.groupValues[1].toLongOrNull() }.toList()
+            if (inlineUpper.isNotEmpty() && inlineUpper.max() <= todayStartMs) return false
+        }
+        return true
     }
 }
 

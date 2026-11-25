@@ -88,8 +88,25 @@ object Nmea {
     private fun course(f: Fix) = f.bearing?.let { String.format(Locale.US, "%.1f", it) } ?: ""
     private fun altitude(f: Fix) = f.altitude ?: 0.0
 
-    private fun gga(t: String, f: Fix, sky: List<Satellite>) = String.format(Locale.US, "$%sGGA,%s,%s,%s,1,%02d,%.1f,%.1f,M,0.0,M,,",
-        t, time(f), lat(f.point.lat), lon(f.point.lon), used(sky), hdop(f), altitude(f))
+    /** Approximate smooth geoid undulation (metres) so GGA/GNS never emit a suspicious flat 0.0 everywhere. */
+    private fun geoid(p: LatLon): Double {
+        val lat = Math.toRadians(p.lat)
+        val lon = Math.toRadians(p.lon)
+        return -12.0 * kotlin.math.sin(lat * 2.0 + lon * 0.5) + 18.0 * kotlin.math.cos(lon - 1.4) * kotlin.math.cos(lat)
+    }
+
+    /** Four-character GNS mode indicator (GPS, GLONASS, Galileo, BeiDou): 'A' when used, 'N' otherwise. */
+    private fun gnsMode(sky: List<Satellite>): String {
+        val usedConstellations = sky.filter { it.used }.mapTo(HashSet()) { it.constellation }
+        if (usedConstellations.isEmpty()) return "AAAA"
+        val order = intArrayOf(Constellation.GPS, Constellation.GLONASS, Constellation.GALILEO, Constellation.BEIDOU)
+        return buildString(4) {
+            for (c in order) append(if (c in usedConstellations) 'A' else 'N')
+        }
+    }
+
+    private fun gga(t: String, f: Fix, sky: List<Satellite>) = String.format(Locale.US, "$%sGGA,%s,%s,%s,1,%02d,%.1f,%.1f,M,%.1f,M,,",
+        t, time(f), lat(f.point.lat), lon(f.point.lon), used(sky), hdop(f), altitude(f), geoid(f.point))
 
     private fun rmc(t: String, f: Fix) = String.format(Locale.US, "$%sRMC,%s,A,%s,%s,%.3f,%s,%s,,,A",
         t, time(f), lat(f.point.lat), lon(f.point.lon), knots(f), course(f), date(f))
@@ -98,8 +115,8 @@ object Nmea {
 
     private fun gll(t: String, f: Fix) = String.format(Locale.US, "$%sGLL,%s,%s,%s,A,A", t, lat(f.point.lat), lon(f.point.lon), time(f))
 
-    private fun gns(t: String, f: Fix, sky: List<Satellite>) = String.format(Locale.US, "$%sGNS,%s,%s,%s,AAAA,%02d,%.1f,%.1f,0.0,,,V",
-        t, time(f), lat(f.point.lat), lon(f.point.lon), used(sky), hdop(f), altitude(f))
+    private fun gns(t: String, f: Fix, sky: List<Satellite>) = String.format(Locale.US, "$%sGNS,%s,%s,%s,%s,%02d,%.1f,%.1f,%.1f,,,V",
+        t, time(f), lat(f.point.lat), lon(f.point.lon), gnsMode(sky), used(sky), hdop(f), altitude(f), geoid(f.point))
 
     private fun zda(t: String, f: Fix): String {
         val c = utc(f)

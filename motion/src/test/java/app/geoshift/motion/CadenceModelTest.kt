@@ -71,4 +71,41 @@ class CadenceModelTest {
         assertEquals(13f, t2.onHardware(8503f, 10L), 1e-4f)
         assertEquals(18f, t2.onSynthetic(15L), 1e-4f)
     }
+
+    @Test
+    fun dayRolloverResetsTodayStepsWhileKeepingTotalMonotonic() {
+        val acc = StepAccumulator()
+        val day1 = 2026330L
+        val day2 = 2026331L
+        acc.advance(1_000L, 1.5, 7L, dayKey = day1)
+        for (i in 1..50) acc.advance(1_000L + i * 100L, 1.5, 7L, dayKey = day1)
+        val day1Steps = acc.todaySyntheticSteps
+        assertTrue("expected > 0 steps on day 1, got $day1Steps", day1Steps > 0L)
+        assertEquals(day1Steps, acc.totalSyntheticSteps)
+
+        // Next local calendar day: todaySyntheticSteps resets, totalSyntheticSteps keeps growing.
+        for (i in 1..20) acc.advance(6_000L + i * 100L, 1.5, 7L, dayKey = day2)
+        assertTrue(acc.todaySyntheticSteps in 1L until day1Steps)
+        assertEquals(day1Steps + acc.todaySyntheticSteps, acc.totalSyntheticSteps)
+    }
+
+    @Test
+    fun miuiStepsFilterSkipsAuxiliaryProcessesAndHistoricalQueries() {
+        assertTrue(MiuiStepsFilter.isAuxiliaryProcess("com.tencent.mm:push"))
+        assertTrue(MiuiStepsFilter.isAuxiliaryProcess("com.example.app:sandboxed_process0"))
+        assertTrue(!MiuiStepsFilter.isAuxiliaryProcess("com.tencent.mm"))
+
+        val todayStart = 1_795_622_400_000L
+        val yesterdayEnd = todayStart - 3_600_000L
+        val todayEnd = todayStart + 3_600_000L
+
+        // Cursor containing yesterday's rows -> do not pollute historical query.
+        assertTrue(!MiuiStepsFilter.shouldApplyToCursor(3, yesterdayEnd, null, null, todayStart))
+        // Cursor containing today's rows -> apply.
+        assertTrue(MiuiStepsFilter.shouldApplyToCursor(3, todayEnd, null, null, todayStart))
+        // Empty cursor with explicit yesterday selectionArgs -> do not synthesize row into yesterday.
+        assertTrue(!MiuiStepsFilter.shouldApplyToCursor(0, null, "_begin_time >= ? AND _end_time < ?", arrayOf((todayStart - 86_400_000L).toString(), todayStart.toString()), todayStart))
+        // Empty cursor querying today -> synthesize row.
+        assertTrue(MiuiStepsFilter.shouldApplyToCursor(0, null, "_begin_time >= ?", arrayOf(todayStart.toString()), todayStart))
+    }
 }

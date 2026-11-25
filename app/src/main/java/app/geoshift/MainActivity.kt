@@ -37,12 +37,26 @@ class MainActivity : ComponentActivity() {
         permissions.launch(arrayOf(*names))
     }
 
+    private var pendingGpxRouteId: String? = null
+
     private val exportDoc = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) vm.run("已导出位置、路线和预设，不含地图 Key。") { exportTo(uri) }
     }
 
     private val importDoc = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.run<Int>(onDone = { vm.toast("备份已导入 $it 条记录；同 ID 记录已更新。") }) { importFrom(uri) }
+    }
+
+    private val importGpxDoc = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.run<Pair<String, Int>>(onDone = { (name, count) -> vm.toast("已导入 GPX 路线「$name」（$count 个点）") }) {
+            importGpx(uri)
+        }
+    }
+
+    private val exportGpxDoc = registerForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
+        val id = pendingGpxRouteId
+        pendingGpxRouteId = null
+        if (uri != null && id != null) vm.run("已导出 GPX 轨迹文件。") { exportGpx(id, uri) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,6 +68,12 @@ class MainActivity : ComponentActivity() {
                 onOpen = ::open,
                 onExport = { exportDoc.launch("geoshift-backup-${System.currentTimeMillis()}.json") },
                 onImport = { importDoc.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                onImportGpx = { importGpxDoc.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "*/*")) },
+                onExportGpx = { id, name ->
+                    pendingGpxRouteId = id
+                    val safe = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "route" }
+                    exportGpxDoc.launch("$safe.gpx")
+                },
             )
         }
     }

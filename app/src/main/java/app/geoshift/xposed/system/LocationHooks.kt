@@ -29,13 +29,16 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) {
     private val providers = listOf("gps", "network", "fused")
+    private class ManagerMeta(val name: String, @Volatile var provider: Any? = null, @Volatile var lock: Any? = null)
     private val managers: MutableSet<Any> = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+    private val managerMeta = Collections.synchronizedMap(WeakHashMap<Any, ManagerMeta>())
     @Volatile private var service = WeakReference<Any>(null)
     /** Last real fix per provider, for apps outside the chosen list and for after stopping. */
     private val lastReal = ConcurrentHashMap<String, Location>()
     /** After stopping, provider caches still hold the last simulated fix until a real one arrives. */
     private val staleProviders = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var pumpWasActive = false
+    @Volatile private var pumpTick = 0L
     @Volatile private var lastFake: LatLon? = null
     @Volatile private var lastPumpAt = 0L
     /** True while the pump itself reports a simulated fix on this thread. */
@@ -72,12 +75,15 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
         }
         hooks.constructors(lpm) { c -> hooks.after(c) { managers.add(it.thisObject!!) } }
         for (m in entries.reports) hooks.before(m, ::onReport)
-        for (m in entries.cached) hooks.after(m, ::onCached)
+        for (m in entries.cached) {
+            hooks.after(m, ::onCached)
+            hooks.deoptimize(m)
+        }
         if (entries.deliveries.isEmpty()) Reflect.recordMissing("LocationProviderManager.acceptLocationChange", "定位交付")
         for (m in entries.deliveries) hooks.before(m, ::onDelivery)
         deliveryHooks = entries.deliveries.size
         installed = true
-        Sim.onChange { schedule(0) }
+        Sim.onChange { pumpTick = 0L; schedule(0) }
         Diag.report("location_system", true, "installed", "系统定位入口已安装（上报 $reportsCount · 缓存 $cachedCount · 交付 $deliveryHooks）")
         schedule(0)
     }
@@ -126,7 +132,9 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
 
     private fun onCached(call: app.geoshift.xposed.Call) {
         if (!installed) return
-        val name = nameOf(call.thisObject ?: return)
+        val manager = call.thisObject ?: return
+        managers.add(manager)
+        val name = nameOf(manager)
         if (name !in providers && name != "passive") return
         val provider = if (name == "passive") "gps" else name
         val returnsResult = call.returnType.name == "android.location.LocationResult"
@@ -249,6 +257,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
 
     private fun kick() {
         if (!installed || active() == null) return
+        pumpTick = 0L
         val since = SystemClock.elapsedRealtime() - lastPumpAt
         schedule(if (since >= 200) 30 else 200 - since)
     }
@@ -271,12 +280,15 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
         if (c == null) {
             if (pumpWasActive) {
                 pumpWasActive = false
+                pumpTick = 0L
                 staleProviders.addAll(providers)
                 staleProviders.add("passive")
             }
             return
         }
+        val firstTick = !pumpWasActive || pumpTick == 0L
         pumpWasActive = true
+        val tickNo = pumpTick++
         staleProviders.clear()
         runCatching { lastFake = Fakes.fix(c, "gps").point }
         // Providers can exist before the constructor hook was installed: discover them from the service.
@@ -287,12 +299,16 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
         var ok = 0
         var failed = 0
         for (manager in snapshot) {
-            val name = nameOf(manager)
+            val meta = metaOf(manager)
+            val name = meta.name
             if (name !in providers) continue
+            // Stagger network provider cadence (every 3rd cycle after initial kick) so gps & network
+            // do not share identical lockstep timestamps.
+            if (name == "network" && !firstTick && tickNo % 3L != 0L) continue
             try {
                 if (active() == null) break
-                val provider = Reflect.get(manager, "mProvider", "定位泵")!!
-                val lock = ownerLock(provider)
+                val provider = meta.provider ?: Reflect.get(manager, "mProvider", "定位泵")!!.also { meta.provider = it }
+                val lock = meta.lock ?: ownerLock(provider).also { meta.lock = it }
                 val packet = Fakes.wrap(Fakes.location(c, name))
                 synchronized(lock) {
                     injecting.set(true)
@@ -311,7 +327,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
 
     private fun ownerLock(provider: Any): Any {
         for (name in listOf("mOwnerLock", "mLock")) Reflect.getOrNull(provider, name)?.let { return it }
-        Reflect.missing["MockableLocationProvider.mOwnerLock"] = "定位泵"
+        Reflect.recordMissing("MockableLocationProvider.mOwnerLock", "定位泵")
         error("provider lock not found")
     }
 
@@ -352,7 +368,13 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
 
     // ---- Helpers ------------------------------------------------------------------------------
 
-    private fun nameOf(manager: Any): String = (Reflect.getOrNull(manager, "mName") as? String).orEmpty()
+    private fun metaOf(manager: Any): ManagerMeta {
+        managerMeta[manager]?.let { return it }
+        val name = (Reflect.getOrNull(manager, "mName") as? String).orEmpty()
+        return ManagerMeta(name).also { if (name.isNotEmpty()) managerMeta[manager] = it }
+    }
+
+    private fun nameOf(manager: Any): String = metaOf(manager).name
 
     private fun count(map: ConcurrentHashMap<String, AtomicLong>, key: String) {
         map.getOrPut(key) { AtomicLong() }.incrementAndGet()

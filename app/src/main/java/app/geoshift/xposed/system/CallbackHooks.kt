@@ -180,7 +180,7 @@ class CallbackHooks(private val hooks: Hooker, private val loader: ClassLoader, 
     private fun proxy(className: String, method: String, label: String, block: (Call) -> Unit) {
         val type = Reflect.classOrNull(className, loader)
         mark(hooks.declared(type, method) { m -> hooks.before(m, block) }, label)
-        if (type == null) Reflect.missing[className.substringAfterLast('.')] = label
+        if (type == null) Reflect.recordMissing(className.substringAfterLast('.'), label)
     }
 
     private fun mark(count: Int, label: String) {

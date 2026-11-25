@@ -7,7 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -16,7 +18,8 @@ private val diskWriter = Executors.newSingleThreadExecutor { r -> Thread(r, "geo
 
 /** A value kept as one JSON file, replaced atomically on every write. */
 private class JsonFile<T>(dir: File, name: String, private val serializer: KSerializer<T>, private val default: () -> T) {
-    private val file = AtomicFile(File(dir, name))
+    val baseFile = File(dir, name)
+    private val file = AtomicFile(baseFile)
 
     fun read(): T = try {
         if (!file.baseFile.exists()) default() else SimConfig.JSON.decodeFromString(serializer, String(file.readFully()))
@@ -27,6 +30,7 @@ private class JsonFile<T>(dir: File, name: String, private val serializer: KSeri
     }
 
     @Synchronized fun write(value: T) {
+        baseFile.parentFile?.mkdirs()
         val out = file.startWrite()
         try {
             out.write(SimConfig.JSON.encodeToString(serializer, value).toByteArray())
@@ -42,14 +46,128 @@ private class JsonFile<T>(dir: File, name: String, private val serializer: KSeri
     }
 }
 
-/** A list of records with its file. */
-class RecordList<T : Record> internal constructor(dir: File, name: String, serializer: KSerializer<T>) {
+/** Persistence strategy for a [RecordList]. All writes are ordered on [diskWriter]. */
+internal interface RecordStorage<T : Record> {
+    fun readAll(): List<T>
+    fun writeAll(list: List<T>)
+    fun writeOrder(list: List<T>) = writeAll(list)
+    fun writeItem(list: List<T>, item: T) = writeAll(list)
+    fun writeItems(list: List<T>, items: List<T>) = writeAll(list)
+    fun removeItems(list: List<T>, removedIds: Set<String>) = writeAll(list)
+}
+
+private class SingleFileStorage<T : Record>(dir: File, name: String, serializer: KSerializer<T>) : RecordStorage<T> {
     private val file = JsonFile(dir, name, ListSerializer(serializer)) { emptyList() }
+    override fun readAll(): List<T> = file.read()
+    override fun writeAll(list: List<T>) = file.writeAsync(list)
+}
+
+@Serializable
+private data class RouteMeta(
+    val id: String,
+    val name: String,
+    val profile: RoadProfile = RoadProfile.STRAIGHT,
+    val createdAt: Long = 0L,
+)
+
+/**
+ * Splits routes into a tiny metadata index (`routes-meta.json`) plus one file per route
+ * (`routes/<id>.json`). Reordering routes only rewrites the metadata index instead of
+ * re-serialising megabytes of route coordinates; migrates legacy `routes.json` seamlessly.
+ */
+private class SplitRouteStorage(dir: File) : RecordStorage<SavedRoute> {
+    private val legacyFile = JsonFile(dir, "routes.json", ListSerializer(SavedRoute.serializer())) { emptyList() }
+    private val metaFile = JsonFile(dir, "routes-meta.json", ListSerializer(RouteMeta.serializer())) { emptyList() }
+    private val routesDir = File(dir, "routes")
+
+    private fun routeFile(id: String): JsonFile<SavedRoute?> {
+        val safe = id.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        return JsonFile(routesDir, "$safe.json", SavedRoute.serializer().nullable) { null }
+    }
+
+    private fun metaOf(list: List<SavedRoute>) = list.map { RouteMeta(it.id, it.name, it.profile, it.createdAt) }
+
+    override fun readAll(): List<SavedRoute> {
+        if (metaFile.baseFile.exists()) {
+            val metas = metaFile.read()
+            return metas.mapNotNull { m -> routeFile(m.id).read() }
+        }
+        if (!legacyFile.baseFile.exists()) return emptyList()
+        val legacy = legacyFile.read()
+        // Migrate legacy monolithic routes.json into split files on the same disk thread.
+        routesDir.mkdirs()
+        for (r in legacy) runCatching { routeFile(r.id).write(r) }
+        runCatching { metaFile.write(metaOf(legacy)) }
+        runCatching { legacyFile.baseFile.delete() }
+        return legacy
+    }
+
+    override fun writeAll(list: List<SavedRoute>) {
+        val metas = metaOf(list)
+        diskWriter.execute {
+            runCatching {
+                routesDir.mkdirs()
+                val keepNames = HashSet<String>(list.size)
+                for (r in list) {
+                    val f = routeFile(r.id)
+                    keepNames.add(f.baseFile.name)
+                    f.write(r)
+                }
+                routesDir.listFiles()?.forEach { child ->
+                    if (child.name !in keepNames) child.delete()
+                }
+                metaFile.write(metas)
+            }
+        }
+    }
+
+    override fun writeOrder(list: List<SavedRoute>) {
+        metaFile.writeAsync(metaOf(list))
+    }
+
+    override fun writeItem(list: List<SavedRoute>, item: SavedRoute) {
+        val metas = metaOf(list)
+        diskWriter.execute {
+            runCatching {
+                routesDir.mkdirs()
+                routeFile(item.id).write(item)
+                metaFile.write(metas)
+            }
+        }
+    }
+
+    override fun writeItems(list: List<SavedRoute>, items: List<SavedRoute>) {
+        val metas = metaOf(list)
+        diskWriter.execute {
+            runCatching {
+                routesDir.mkdirs()
+                for (item in items) routeFile(item.id).write(item)
+                metaFile.write(metas)
+            }
+        }
+    }
+
+    override fun removeItems(list: List<SavedRoute>, removedIds: Set<String>) {
+        val metas = metaOf(list)
+        diskWriter.execute {
+            runCatching {
+                for (id in removedIds) routeFile(id).baseFile.delete()
+                metaFile.write(metas)
+            }
+        }
+    }
+}
+
+/** A list of records with ordered async persistence. */
+class RecordList<T : Record> internal constructor(private val storage: RecordStorage<T>) {
+    internal constructor(dir: File, name: String, serializer: KSerializer<T>) :
+        this(SingleFileStorage(dir, name, serializer))
+
     private val flow = MutableStateFlow<List<T>>(emptyList())
     val items: StateFlow<List<T>> = flow.asStateFlow()
 
     @Synchronized internal fun loadFromDisk() {
-        flow.value = file.read()
+        flow.value = storage.readAll()
     }
 
     fun find(id: String): T = flow.value.firstOrNull { it.id == id } ?: fail("记录不存在，可能已经删除。")
@@ -58,7 +176,8 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
     @Synchronized fun put(item: T) {
         val next = listOf(item) + flow.value.filter { it.id != item.id }
         if (next.size > Validate.MAX_RECORDS) fail("记录已达 ${Validate.MAX_RECORDS} 条，请先导出并清理。")
-        save(next)
+        flow.value = next
+        storage.writeItem(next, item)
     }
 
     /** Replaces an existing record in place so custom ordering is preserved; prepends if absent. */
@@ -70,7 +189,8 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
             if (current.size + 1 > Validate.MAX_RECORDS) fail("记录已达 ${Validate.MAX_RECORDS} 条，请先导出并清理。")
             listOf(item) + current
         }
-        save(next)
+        flow.value = next
+        storage.writeItem(next, item)
     }
 
     /** Moves the record with [id] to the top (index 0). */
@@ -81,7 +201,8 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
         val next = current.toMutableList()
         val item = next.removeAt(index)
         next.add(0, item)
-        save(next)
+        flow.value = next
+        storage.writeOrder(next)
     }
 
     /** Moves the record with [id] by [delta] positions (-1 up, +1 down). */
@@ -94,7 +215,8 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
         val next = current.toMutableList()
         val item = next.removeAt(index)
         next.add(target, item)
-        save(next)
+        flow.value = next
+        storage.writeOrder(next)
     }
 
     /** Room left before [Validate.MAX_RECORDS] once [items] replace the records sharing their ids. */
@@ -109,16 +231,22 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
         if (!fits(items)) fail("记录已达 ${Validate.MAX_RECORDS} 条，请先导出并清理。")
         val unique = items.distinctBy { it.id }
         val ids = unique.mapTo(HashSet()) { it.id }
-        save(unique + flow.value.filter { it.id !in ids })
+        val next = unique + flow.value.filter { it.id !in ids }
+        flow.value = next
+        storage.writeItems(next, unique)
     }
 
-    @Synchronized fun remove(ids: Set<String>) = save(flow.value.filter { it.id !in ids })
+    @Synchronized fun remove(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val next = flow.value.filter { it.id !in ids }
+        flow.value = next
+        storage.removeItems(next, ids)
+    }
 
-    @Synchronized fun clear() = save(emptyList())
-
-    private fun save(list: List<T>) {
-        file.write(list)
-        flow.value = list
+    @Synchronized fun clear() {
+        val removed = flow.value.mapTo(HashSet()) { it.id }
+        flow.value = emptyList()
+        storage.removeItems(emptyList(), removed)
     }
 }
 
@@ -160,13 +288,13 @@ class Store(context: Context) {
     val sdkStyleId: StateFlow<String> = _sdkStyleId.asStateFlow()
 
     val places = RecordList(dir, "places.json", SavedPlace.serializer())
-    val routes = RecordList(dir, "routes.json", SavedRoute.serializer())
+    val routes = RecordList(SplitRouteStorage(dir))
     val wifiPresets = RecordList(dir, "wifi.json", WifiPreset.serializer())
     val cellPresets = RecordList(dir, "cells.json", CellPreset.serializer())
     val environments = RecordList(dir, "environments.json", EnvironmentRecord.serializer())
 
     init {
-        // Load all 10 JSON files on the single ordered disk thread so Application.onCreate never blocks on IO.
+        // Load all store files on the single ordered disk thread so Application.onCreate never blocks on IO.
         diskWriter.execute {
             dir.mkdirs()
             // The AMap Web service key (3.1.0 and earlier) is no longer used.

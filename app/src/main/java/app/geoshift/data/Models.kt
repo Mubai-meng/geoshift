@@ -111,6 +111,7 @@ data class Runtime(
     val error: String = "",
     val wifiEnabled: Boolean = false,
     val wifi: WifiSpec? = null,
+    val wifiScan: List<WifiSpec> = emptyList(),
     val wifiPresetId: String = "",
     val cellEnabled: Boolean = false,
     val cells: List<CellSpec> = emptyList(),
@@ -224,11 +225,29 @@ const val NAMED_PLACE_RADIUS = 20.0
 fun positionName(r: Runtime, places: List<SavedPlace>, environments: List<EnvironmentRecord>): String {
     if (r.routeMode) return ""
     val p = r.position
-    places.filter { app.geoshift.core.Geo.distance(p, it.position) <= NAMED_PLACE_RADIUS }
-        .minByOrNull { app.geoshift.core.Geo.distance(p, it.position) }?.let { return it.name }
-    environments.filter { app.geoshift.core.Geo.distance(p, it.position) <= NAMED_PLACE_RADIUS }
-        .minByOrNull { app.geoshift.core.Geo.distance(p, it.position) }?.let { return it.name }
-    return ""
+    val nearPolar = kotlin.math.abs(p.lat) > 75.0
+    var bestPlace: SavedPlace? = null
+    var bestPlaceDist = Double.MAX_VALUE
+    for (item in places) {
+        if (!nearPolar && (kotlin.math.abs(p.lat - item.position.lat) > 0.0003 || kotlin.math.abs(p.lon - item.position.lon) > 0.0007)) continue
+        val d = Geo.distance(p, item.position)
+        if (d <= NAMED_PLACE_RADIUS && d < bestPlaceDist) {
+            bestPlaceDist = d
+            bestPlace = item
+        }
+    }
+    if (bestPlace != null) return bestPlace.name
+    var bestEnv: EnvironmentRecord? = null
+    var bestEnvDist = Double.MAX_VALUE
+    for (item in environments) {
+        if (!nearPolar && (kotlin.math.abs(p.lat - item.position.lat) > 0.0003 || kotlin.math.abs(p.lon - item.position.lon) > 0.0007)) continue
+        val d = Geo.distance(p, item.position)
+        if (d <= NAMED_PLACE_RADIUS && d < bestEnvDist) {
+            bestEnvDist = d
+            bestEnv = item
+        }
+    }
+    return bestEnv?.name.orEmpty()
 }
 
 @Serializable

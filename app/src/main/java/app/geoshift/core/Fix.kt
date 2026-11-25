@@ -84,6 +84,12 @@ object FixBuilder {
             east += Noise.smooth(t, 3.7, seed, 71) / sqrt(2.0)
             north += Noise.smooth(t, 4.9, seed, 97) / sqrt(2.0)
         }
+        if (network) {
+            // Network fixes come from cell/Wi-Fi databases and drift independently by a few metres from GPS/fused.
+            val netDrift = min(10.0, max(4.0, accuracy * 0.35))
+            east += netDrift * Noise.smooth(t, 29.3, seed, 83)
+            north += netDrift * Noise.smooth(t, 37.1, seed, 109)
+        }
         val offset = hypot(east, north)
         if (offset > 0) point = Geo.move(point, offset, Math.toDegrees(atan2(east, north)))
         val wall = clock.wallMs() - age
@@ -100,11 +106,11 @@ object FixBuilder {
             wallTime = wall,
             elapsedNanos = elapsedNanos,
             altitude = config.altitude + 1.5 * Noise.drift(t, seed, 33),
-            verticalAccuracy = (accuracy * 1.6).toFloat(),
+            verticalAccuracy = (accuracy * (1.45 + 0.25 * (1 + Noise.drift(t, seed, 43)))).toFloat(),
             speed = reported.toFloat(),
             speedAccuracy = (0.4 + 0.2 * (1 + Noise.drift(t, seed, 61))).toFloat(),
             bearing = if (moving) bearing.toFloat() else null,
-            bearingAccuracy = if (moving) 10f else null,
+            bearingAccuracy = if (moving) (8.0 + 4.0 * (1 + Noise.drift(t, seed, 67))).toFloat() else null,
             gps = if (provider == "gps") Sky.summary(Sky.at(config, now)) else null,
         )
     }

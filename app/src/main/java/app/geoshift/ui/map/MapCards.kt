@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.rounded.Check
@@ -356,8 +357,10 @@ internal fun RouteEditorCard(
     profile: RoadProfile,
     roadStatus: String?,
     roadFailed: Boolean,
+    canUndo: Boolean,
     onToggleNodes: () -> Unit,
     onFocusNode: (LatLon) -> Unit,
+    onInsertAfterNode: (Int) -> Unit,
     onRemoveNode: (Int) -> Unit,
     onProfile: (RoadProfile) -> Unit,
     onUndo: () -> Unit,
@@ -422,6 +425,11 @@ internal fun RouteEditorCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
+                        if (index < nodes.lastIndex) {
+                            IconButton(onClick = { onInsertAfterNode(index) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Rounded.Add, "在 $tag 后插入中点", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            }
+                        }
                         IconButton(onClick = { onRemoveNode(index) }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Rounded.Close, "删除节点 $tag", tint = Danger, modifier = Modifier.size(16.dp))
                         }
@@ -445,7 +453,7 @@ internal fun RouteEditorCard(
         // Default 24 dp side padding leaves the save button too narrow on small phones ("保存路/线").
         val compact = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onUndo, enabled = count > 0, contentPadding = compact) {
+            OutlinedButton(onClick = onUndo, enabled = canUndo, contentPadding = compact) {
                 Icon(Icons.AutoMirrored.Rounded.Undo, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("撤销", maxLines = 1, softWrap = false)
             }
             OutlinedButton(onClick = onClear, enabled = count > 0, contentPadding = compact) {

@@ -17,11 +17,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.geoshift.core.Geo
 import app.geoshift.core.LatLon
 import app.geoshift.data.net.AmapSdk
 import app.geoshift.map.MapSource
 import com.amap.api.maps.AMap
-import com.amap.api.maps.AMapUtils
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.TextureMapView
@@ -259,7 +259,7 @@ private class NativeLayers(
                 // While simulating, glide the marker between consecutive fixes instead of teleporting;
                 // a large jump (a manual move, a joystick snap) is applied at once.
                 if (simulating && from != null &&
-                    AMapUtils.calculateLineDistance(from.amap(), virtual.amap()) in 0.2f..300f) {
+                    Geo.distance(from, virtual) in 0.2..300.0) {
                     animateVirtual(from, virtual)
                 } else {
                     virtualAnimator?.cancel()
